@@ -1,0 +1,239 @@
+mod action;
+mod app;
+mod auth;
+mod event;
+mod mcp;
+mod tui;
+mod ui;
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::Context;
+use clap::Parser;
+use tokio::sync::{mpsc, Mutex};
+use tracing::{error, info, warn};
+
+use crate::action::Action;
+use crate::app::App;
+use crate::auth::AuthManager;
+use crate::event::EventHandler;
+use crate::mcp::McpManager;
+use crate::mcp::types::ToolCallRequest;
+use crate::ui::result_view::ResultState;
+use crate::ui::tool_form::assemble_args;
+
+#[derive(Parser, Debug)]
+#[command(name = "gt-ui", about = "GPS Trust MCP Terminal UI")]
+struct Cli {
+    /// API key for MCP server authentication
+    #[arg(long, env = "GPS_TRUST_API_KEY")]
+    api_key: Option<String>,
+
+    /// Use OAuth 2.1 authentication [default: true, --no-oauth to disable]
+    #[arg(long, default_value_t = true, overrides_with = "no_oauth")]
+    oauth: bool,
+
+    /// Disable OAuth (use API key only)
+    #[arg(long = "no-oauth", action = clap::ArgAction::SetTrue)]
+    no_oauth: bool,
+
+    /// User MCP server URL
+    #[arg(long, default_value = "https://gt.aussierobots.com.au/mcp")]
+    user_url: String,
+
+    /// Agent MCP server URL
+    #[arg(long, default_value = "https://agent.aussierobots.com.au/mcp")]
+    agent_url: String,
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("gps_trust_mcp_tui=info".parse()?),
+        )
+        .with_writer(std::io::stderr)
+        .init();
+
+    run(cli).await
+}
+
+async fn run(cli: Cli) -> anyhow::Result<()> {
+    // --- Phase 1: Authenticate (before entering TUI) ---
+    let use_oauth = cli.oauth && !cli.no_oauth;
+    let auth_manager = AuthManager::new(
+        cli.api_key,
+        use_oauth,
+        cli.user_url.clone(),
+        cli.agent_url.clone(),
+    );
+
+    eprintln!("Authenticating...");
+    let session = auth_manager
+        .authenticate()
+        .await
+        .context("authentication failed")?;
+    eprintln!("Authenticated as {}", session.display_name);
+
+    // --- Phase 2: Connect MCP servers (before entering TUI) ---
+    let (action_tx, mut action_rx) = mpsc::unbounded_channel::<Action>();
+
+    let mut mcp_manager = McpManager::new(&session, &cli.user_url, &cli.agent_url)
+        .context("failed to create MCP manager")?;
+
+    eprintln!("Connecting to MCP servers...");
+    mcp_manager
+        .connect_all(action_tx.clone())
+        .await
+        .context("failed to connect MCP servers")?;
+
+    // List tools from both servers
+    let tools = mcp_manager
+        .list_all_tools()
+        .await
+        .context("failed to list tools")?;
+    eprintln!("Loaded {} tools", tools.len());
+
+    // Wrap manager for shared access from background tasks
+    let mcp = Arc::new(Mutex::new(mcp_manager));
+
+    // --- Phase 3: Enter TUI ---
+    let mut terminal = tui::init()?;
+    let mut app = App::new();
+    app.update(Action::AuthSuccess(session));
+    app.set_tools(tools);
+
+    let event_handler = EventHandler::new(action_tx.clone());
+    event_handler.start();
+
+    let mut tick_interval = tokio::time::interval(Duration::from_millis(250));
+
+    // Initial render
+    terminal.draw(|f| ui::render(f, &mut app))?;
+
+    loop {
+        tokio::select! {
+            Some(action) = action_rx.recv() => {
+                // Let app reducer handle the action first
+                app.update(action.clone());
+
+                // Check if app wants to execute a tool
+                if app.execute_requested {
+                    app.execute_requested = false;
+
+                    if let Some(ref form) = app.form_state {
+                        if form.missing_required().is_empty() {
+                            if let Some(request) = build_tool_call_request(&app) {
+                                let tool_name = request.tool_name.clone();
+                                let mut rs = ResultState::new();
+                                rs.tool_name = Some(tool_name);
+
+                                app.form_state = None;
+                                app.result_state = Some(rs);
+                                app.active_task = None;
+                                app.input_mode = app::InputMode::Normal;
+                                app.focus = app::PanelFocus::Result;
+
+                                let mcp = Arc::clone(&mcp);
+                                let tx = action_tx.clone();
+                                tokio::spawn(async move {
+                                    dispatch_tool_call(mcp, request, tx).await;
+                                });
+                            }
+                        }
+                        // else: required fields missing, stay on form
+                    }
+                }
+
+                // Side effects that need async (MCP calls)
+                match &action {
+                    Action::McpToolsRefreshed(_) => {
+                        let mcp = Arc::clone(&mcp);
+                        let tx = action_tx.clone();
+                        tokio::spawn(async move {
+                            let manager = mcp.lock().await;
+                            match manager.list_all_tools().await {
+                                Ok(tools) => {
+                                    let _ = tx.send(Action::ToolsLoaded(tools));
+                                }
+                                Err(e) => {
+                                    warn!(error = %e, "Failed to refresh tools");
+                                }
+                            }
+                        });
+                    }
+                    _ => {}
+                }
+
+                if app.should_quit {
+                    break;
+                }
+            }
+            _ = tick_interval.tick() => {
+                terminal.draw(|f| ui::render(f, &mut app))?;
+            }
+        }
+    }
+
+    // --- Cleanup ---
+    tui::restore()?;
+
+    // Best-effort disconnect
+    let manager = mcp.lock().await;
+    let _ = manager.disconnect_all().await;
+
+    Ok(())
+}
+
+/// Build a ToolCallRequest from the current form state.
+fn build_tool_call_request(app: &App) -> Option<ToolCallRequest> {
+    let form = app.form_state.as_ref()?;
+    let tool_entry = app.selected_tool()?;
+
+    let arguments = assemble_args(&form.fields);
+
+    Some(ToolCallRequest {
+        server: tool_entry.server,
+        tool_name: form.tool_name.clone(),
+        arguments,
+    })
+}
+
+/// Dispatch a tool call in the background and send the result back.
+async fn dispatch_tool_call(
+    mcp: Arc<Mutex<McpManager>>,
+    request: ToolCallRequest,
+    tx: mpsc::UnboundedSender<Action>,
+) {
+    let tool_name = request.tool_name.clone();
+    let server = request.server;
+
+    info!(tool = %tool_name, server = %server, "Dispatching tool call");
+
+    let manager = mcp.lock().await;
+    match manager.call_tool(request).await {
+        Ok(result) => {
+            info!(tool = %tool_name, "Tool call completed");
+            let _ = tx.send(Action::McpToolResult(Box::new(result)));
+        }
+        Err(e) => {
+            error!(tool = %tool_name, error = %e, "Tool call failed");
+            let _ = tx.send(Action::McpToolResult(Box::new(
+                turul_mcp_protocol::CallToolResult {
+                    content: vec![turul_mcp_protocol::ContentBlock::Text {
+                        text: format!("Error: {e}"),
+                        annotations: None,
+                        meta: None,
+                    }],
+                    is_error: Some(true),
+                    structured_content: None,
+                    meta: None,
+                },
+            )));
+        }
+    }
+}
