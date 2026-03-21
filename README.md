@@ -4,12 +4,12 @@ Terminal UI and CLI for interacting with GPS Trust MCP servers. Connects to both
 
 ## Features
 
-- **Dual MCP server connection** — User (26 tools) and Agent (25 tools) with status indicators
+- **Dual MCP server connection** — User (26 tools) and Agent (25 tools) with live status indicators
 - **OAuth 2.1 + PKCE** authentication (default) with API key fallback
 - **Interactive TUI** — tool browser, schema-driven parameter forms, structured result view
 - **CLI tool calling** — `gt-ui call <tool> -p key=value` with JSON output to stdout
 - **Session management** — `gt-ui logout` clears local tokens and server session
-- **Reconnect** — `r` key reconnects dropped MCP servers without restarting
+- **Reconnect** — `r` key rebuilds MCP connections without restarting
 - **Vim-style navigation** — `j`/`k`, `/` filter, `Tab` focus cycling
 
 ## Install
@@ -32,7 +32,7 @@ gt-ui
 # Interactive TUI with API key
 gt-ui --api-key <key>
 
-# Call a tool directly (JSON output)
+# Call a tool directly (JSON to stdout)
 gt-ui call account_devices
 
 # Call with parameters
@@ -41,6 +41,14 @@ gt-ui call device_location -p device_id=D#018f9ed3c...
 # Logout (clears tokens + server session)
 gt-ui logout
 ```
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| *(none)* | Launch interactive TUI |
+| `call <tool> [-p key=value]...` | Execute a tool, print JSON to stdout |
+| `logout` | Clear stored OAuth tokens and server session |
 
 ## CLI Tool Calling
 
@@ -108,51 +116,61 @@ Running `gt-ui` without a subcommand launches the interactive terminal UI.
 ### Layout
 
 ```
-+──────────────────────────────────────────────────────────────+
-│ gt-ui  nick@aussierobots  [User:ok] [Agent:ok]  49 tools     │
-+──────────────────────+───────────────────────────────────────+
-│  [U] Account Devices │  Account Devices  [U]                 │
-│  [U] Account Robots  │  account_devices                      │
-│> [U] Device Location │  read-only | idempotent               │
-│  [A] List Agents     │                                       │
-│  ...                 │  Returns all devices account-wide...   │
-│                      +───────────────────────────────────────+
-│                      │  [1] Structured   [2] Raw              │
-│  /filter_            │  deviceCount  6                        │
-│                      │  devices  (6 items)                    │
-│                      │    deviceId  D#018f9ed3c...            │
-+──────────────────────+───────────────────────────────────────+
-│ j/k: scroll | 1/2: switch tab | Esc: close | Tab: next pane │
-+──────────────────────────────────────────────────────────────+
++──────────────────────────────────────────────────────────────────+
+│ gt-ui  nick@aussierobots  [User:ok] [Agent:ok]  49 tools         │
++──────────────────────+───────────────────────────────────────────+
+│  [U] Account Devices │  Account Devices  [U]                     │
+│  [U] Account Robots  │  account_devices                          │
+│> [U] Device Location │  read-only | idempotent                   │
+│  [A] List Agents     │                                           │
+│  ...                 │  Returns all devices account-wide...       │
+│                      +───────────────────────────────────────────+
+│                      │  [1] Structured   [2] Raw                  │
+│  /filter_            │  ┌account_devices─────────────────────┐   │
+│                      │  │ deviceCount  6                      │   │
+│                      │  │ devices  (6 items)                  │   │
+│                      │  │   deviceId  D#018f9ed3c...          │   │
+│                      │  └────────────────────────────────────┘   │
++──────────────────────+───────────────────────────────────────────+
+│ j/k: nav | Enter: open | /: filter | r: reconnect | q: quit     │
++──────────────────────────────────────────────────────────────────+
 ```
 
 ### Keybindings
 
-#### Tool List
+#### Global
+| Key | Action |
+|-----|--------|
+| `Tab` | Cycle focus between panes |
+| `Esc` | Back / close current pane |
+| `Ctrl+C` | Quit immediately |
+| `r` | Reconnect MCP servers |
+| `L` (shift) | Logout and quit |
+| `q` | Quit |
+
+#### Tool List (left pane)
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Navigate up/down |
 | `Enter` | Execute (no params) or open form (has params) |
-| `/` | Start filter |
-| `Tab` | Next pane |
-| `q` | Quit |
+| `/` | Start filter (type to search, `Enter` to accept, `Esc` to clear) |
 
 #### Parameter Form
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Navigate fields |
-| `Enter` | Edit selected field |
-| `Space` | Toggle boolean |
-| `e` | Execute tool |
-| `Esc` | Back to detail |
+| `Enter` | Start editing selected field |
+| `Space` | Toggle boolean field |
+| `e` | Execute tool (validates required fields) |
+| `Esc` | Back to detail view |
 
 #### Result View
 | Key | Action |
 |-----|--------|
-| `j` / `k` | Scroll |
-| `1` / `2` | Switch Structured/Raw tab |
+| `j` / `k` | Scroll up/down |
+| `1` | Structured tab (friendly key-value view) |
+| `2` | Raw tab (JSON pretty-print) |
 | `Esc` | Close result |
-| `Tab` | Next pane |
 
 ## Authentication
 
@@ -162,7 +180,7 @@ Uses authorization code flow with PKCE (S256). On first run:
 1. Registers client via Dynamic Client Registration
 2. Opens browser for login
 3. Captures callback on `127.0.0.1:19876`
-4. Stores refresh tokens at `~/.config/gps-trust/tokens.json`
+4. Stores refresh tokens at `~/.config/gps-trust/tokens.json` (0600 permissions)
 
 Subsequent runs refresh tokens silently without browser interaction.
 
@@ -180,6 +198,28 @@ gt-ui
 
 # API key only (disable OAuth)
 gt-ui --no-oauth --api-key sk-your-key-here
+```
+
+### Logout
+
+Clears local refresh tokens and invalidates the server session:
+
+```bash
+gt-ui logout
+```
+
+In the TUI, press `L` (shift-L) to logout and quit. Next run will require a fresh browser login.
+
+## Global Options
+
+```
+Options:
+    --api-key <API_KEY>      API key [env: GPS_TRUST_API_KEY]
+    --oauth                  Enable OAuth (default: true)
+    --no-oauth               Disable OAuth (API key only)
+    --user-url <URL>         User MCP server [default: https://gt.aussierobots.com.au/mcp]
+    --agent-url <URL>        Agent MCP server [default: https://agent.aussierobots.com.au/mcp]
+    -h, --help               Print help
 ```
 
 ## Requirements
