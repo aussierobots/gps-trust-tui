@@ -85,6 +85,7 @@ impl FormState {
     }
 
     /// Check if the tool has non-managed required fields (needs user input).
+    #[allow(dead_code)]
     pub fn has_required_input(&self) -> bool {
         self.fields.iter().any(|f| !f.managed && f.required)
     }
@@ -96,11 +97,6 @@ impl FormState {
             .filter(|f| !f.managed && f.required && f.value.is_empty())
             .map(|f| f.name.as_str())
             .collect()
-    }
-
-    /// Whether this form can be submitted (all required visible fields filled).
-    pub fn is_ready(&self) -> bool {
-        self.missing_required().is_empty()
     }
 
     /// Move selection to the next visible field.
@@ -149,6 +145,7 @@ impl FormState {
     }
 
     /// Cycle an enum field forward.
+    #[allow(dead_code)]
     pub fn cycle_enum_forward(&mut self) {
         if let Some(field) = self.selected_field_mut() {
             if let FieldType::Enum(ref values) = field.field_type {
@@ -162,6 +159,7 @@ impl FormState {
     }
 
     /// Cycle an enum field backward.
+    #[allow(dead_code)]
     pub fn cycle_enum_backward(&mut self) {
         if let Some(field) = self.selected_field_mut() {
             if let FieldType::Enum(ref values) = field.field_type {

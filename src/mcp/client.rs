@@ -80,11 +80,13 @@ impl McpServerClient {
     }
 
     /// Server capabilities detected after connect.
+    #[allow(dead_code)]
     pub fn caps(&self) -> &ServerCaps {
         &self.caps
     }
 
     /// Server identity.
+    #[allow(dead_code)]
     pub fn identity(&self) -> ServerIdentity {
         self.identity
     }
@@ -126,6 +128,7 @@ impl McpServerClient {
     }
 
     /// Task-augmented tool call.
+    #[allow(dead_code)]
     pub async fn call_tool_with_task(
         &self,
         name: &str,
@@ -138,6 +141,7 @@ impl McpServerClient {
     }
 
     /// Get a task by ID.
+    #[allow(dead_code)]
     pub async fn get_task(&self, task_id: &str) -> Result<Task> {
         self.client
             .get_task(task_id)
@@ -146,6 +150,7 @@ impl McpServerClient {
     }
 
     /// Cancel a task by ID.
+    #[allow(dead_code)]
     pub async fn cancel_task(&self, task_id: &str) -> Result<Task> {
         self.client
             .cancel_task(task_id)
@@ -154,6 +159,7 @@ impl McpServerClient {
     }
 
     /// Access the underlying MCP client (for operations not wrapped here).
+    #[allow(dead_code)]
     pub fn client_ref(&self) -> &McpClient {
         &self.client
     }

@@ -2,14 +2,10 @@ use crate::mcp::types::ServerIdentity;
 
 #[derive(Debug, Clone)]
 pub enum Action {
-    Tick,
-    Render,
     Quit,
 
     // Auth lifecycle
-    AuthStart,
     AuthSuccess(crate::auth::session::AuthSession),
-    AuthFailure(String),
 
     // MCP lifecycle
     McpConnecting(ServerIdentity),
@@ -18,52 +14,49 @@ pub enum Action {
     McpError(ServerIdentity, String),
     McpToolsRefreshed(ServerIdentity),
     McpProgress {
+        #[allow(dead_code)]
         server: ServerIdentity,
+        #[allow(dead_code)]
         progress_token: String,
         progress: f64,
         total: Option<f64>,
         message: Option<String>,
     },
     McpToolResult(Box<turul_mcp_protocol::CallToolResult>),
-    McpTaskCreated(Box<crate::mcp::types::ActiveTask>),
-    McpTaskUpdate(Box<crate::mcp::types::ActiveTask>),
 
     // Tool interaction
-    ToolSelected(usize),
-    ToolExecute,
+    #[allow(dead_code)]
     ToolCancel,
 
     // Form interaction
-    FormFieldNext,
-    FormFieldPrev,
-    FormFieldEdit,
+    #[allow(dead_code)]
     FormFieldToggle,
-    FormEnumNext,
-    FormEnumPrev,
+    #[allow(dead_code)]
     FormInputChar(char),
+    #[allow(dead_code)]
     FormInputBackspace,
-    FormSubmit,
-    FormCancel,
 
     // UI navigation
     FocusNext,
     FocusPrev,
     ScrollUp,
     ScrollDown,
+    #[allow(dead_code)]
     FilterStart,
-    FilterClear,
     FilterChar(char),
     FilterBackspace,
     Enter,
     Escape,
 
     // Result tabs
+    #[allow(dead_code)]
     ResultNextTab,
 
     // Paste
     PasteText(String),
 
     // Reconnect
+    #[allow(dead_code)]
     Reconnect,
 
     // Bulk data

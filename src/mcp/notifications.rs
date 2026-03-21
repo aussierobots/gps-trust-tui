@@ -59,10 +59,12 @@ pub fn dispatch_notification(
 ///
 /// Call `push()` for each progress action, then `drain()` on each tick to get
 /// the de-duplicated batch.
+#[allow(dead_code)]
 pub struct NotificationCoalescer {
     buffer: HashMap<(ServerIdentity, String), Action>,
 }
 
+#[allow(dead_code)]
 impl NotificationCoalescer {
     pub fn new() -> Self {
         Self {

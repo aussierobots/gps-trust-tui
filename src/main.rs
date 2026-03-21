@@ -105,6 +105,8 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     let mut terminal = tui::init()?;
     let mut app = App::new();
     app.update(Action::AuthSuccess(session));
+    app.update(Action::McpConnected(mcp::types::ServerIdentity::User));
+    app.update(Action::McpConnected(mcp::types::ServerIdentity::Agent));
     app.set_tools(tools);
 
     let event_handler = EventHandler::new(action_tx.clone());
@@ -125,27 +127,37 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 if app.execute_requested {
                     app.execute_requested = false;
 
-                    if let Some(ref form) = app.form_state {
-                        if form.missing_required().is_empty() {
-                            if let Some(request) = build_tool_call_request(&app) {
-                                let tool_name = request.tool_name.clone();
-                                let mut rs = ResultState::new();
-                                rs.tool_name = Some(tool_name);
-
-                                app.form_state = None;
-                                app.result_state = Some(rs);
-                                app.active_task = None;
-                                app.input_mode = app::InputMode::Normal;
-                                app.focus = app::PanelFocus::Result;
-
-                                let mcp = Arc::clone(&mcp);
-                                let tx = action_tx.clone();
-                                tokio::spawn(async move {
-                                    dispatch_tool_call(mcp, request, tx).await;
-                                });
-                            }
+                    let request = if let Some(ref form) = app.form_state {
+                        if !form.missing_required().is_empty() {
+                            None // Required fields missing, stay on form
+                        } else {
+                            build_tool_call_request(&app)
                         }
-                        // else: required fields missing, stay on form
+                    } else {
+                        // No form — build request directly from selected tool
+                        app.selected_tool().map(|entry| ToolCallRequest {
+                            server: entry.server,
+                            tool_name: entry.tool.name.clone(),
+                            arguments: serde_json::json!({}),
+                        })
+                    };
+
+                    if let Some(request) = request {
+                        let tool_name = request.tool_name.clone();
+                        let mut rs = ResultState::new();
+                        rs.tool_name = Some(tool_name);
+
+                        app.form_state = None;
+                        app.result_state = Some(rs);
+                        app.active_task = None;
+                        app.input_mode = app::InputMode::Normal;
+                        app.focus = app::PanelFocus::Result;
+
+                        let mcp = Arc::clone(&mcp);
+                        let tx = action_tx.clone();
+                        tokio::spawn(async move {
+                            dispatch_tool_call(mcp, request, tx).await;
+                        });
                     }
                 }
 

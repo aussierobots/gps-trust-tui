@@ -6,8 +6,11 @@ use crate::mcp::types::ServerIdentity;
 pub enum ServerCredentials {
     OAuth {
         access_token: String,
+        #[allow(dead_code)]
         refresh_token: String,
+        #[allow(dead_code)]
         expires_at: i64,
+        #[allow(dead_code)]
         audience: String,
     },
     ApiKey {
@@ -19,6 +22,7 @@ pub enum ServerCredentials {
 pub struct AuthSession {
     pub account_id: String,
     pub display_name: String,
+    #[allow(dead_code)]
     pub entity_type: String,
     pub credentials: HashMap<ServerIdentity, ServerCredentials>,
 }

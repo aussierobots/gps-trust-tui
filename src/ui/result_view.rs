@@ -44,6 +44,7 @@ impl ResultState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_error(message: String) -> Self {
         Self {
             result: None,

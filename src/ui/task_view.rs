@@ -11,6 +11,7 @@ use crate::mcp::types::ActiveTask;
 ///
 /// For working tasks this shows a progress bar and status message.
 /// For terminal states it shows the final status with appropriate styling.
+#[allow(dead_code)]
 pub fn render_task_view(frame: &mut Frame, area: Rect, task: &ActiveTask) {
     let status = task.task.status;
 
@@ -124,6 +125,7 @@ pub fn render_task_view(frame: &mut Frame, area: Rect, task: &ActiveTask) {
 }
 
 /// Map a `TaskStatus` to a display label and colour.
+#[allow(dead_code)]
 fn status_display(status: TaskStatus) -> (&'static str, Color) {
     match status {
         TaskStatus::Working => ("Working", Color::Cyan),
@@ -135,6 +137,7 @@ fn status_display(status: TaskStatus) -> (&'static str, Color) {
 }
 
 /// Build an optional status-message line in dim style.
+#[allow(dead_code)]
 fn status_message_line(message: &Option<String>) -> Line<'static> {
     match message {
         Some(msg) => Line::from(Span::styled(

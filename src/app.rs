@@ -21,6 +21,7 @@ pub enum InputMode {
     Normal,
     Filter,
     FormEdit,
+    #[allow(dead_code)]
     Login,
 }
 
@@ -37,6 +38,7 @@ pub struct App {
     pub input_mode: InputMode,
     pub auth_session: Option<AuthSession>,
     pub server_state: HashMap<ServerIdentity, ConnectionState>,
+    #[allow(dead_code)]
     pub server_caps: HashMap<ServerIdentity, ServerCaps>,
 
     // Tool browser state
@@ -93,14 +95,8 @@ impl App {
             }
 
             // --- Auth lifecycle ---
-            Action::AuthStart => {
-                self.input_mode = InputMode::Login;
-            }
             Action::AuthSuccess(session) => {
                 self.auth_session = Some(session);
-                self.input_mode = InputMode::Normal;
-            }
-            Action::AuthFailure(_msg) => {
                 self.input_mode = InputMode::Normal;
             }
 
@@ -147,55 +143,16 @@ impl App {
                 self.active_task = None;
                 self.focus = PanelFocus::Result;
             }
-            Action::McpTaskCreated(task) => {
-                self.active_task = Some(*task);
-            }
-            Action::McpTaskUpdate(task) => {
-                self.active_task = Some(*task);
-            }
 
             // --- Tool interaction ---
-            Action::ToolSelected(idx) => {
-                self.tool_list_state.select(Some(idx));
-                self.focus = PanelFocus::Detail;
-            }
-            Action::ToolExecute => {
-                // Handled by the MCP dispatch layer; the form submits via this.
-            }
             Action::ToolCancel => {
                 // Signal sent to the MCP dispatch layer to cancel the active task.
             }
 
             // --- Form interaction ---
-            Action::FormFieldNext => {
-                if let Some(ref mut form) = self.form_state {
-                    form.select_next();
-                }
-            }
-            Action::FormFieldPrev => {
-                if let Some(ref mut form) = self.form_state {
-                    form.select_prev();
-                }
-            }
-            Action::FormFieldEdit => {
-                if let Some(ref mut form) = self.form_state {
-                    form.editing = true;
-                    self.input_mode = InputMode::FormEdit;
-                }
-            }
             Action::FormFieldToggle => {
                 if let Some(ref mut form) = self.form_state {
                     form.toggle_boolean();
-                }
-            }
-            Action::FormEnumNext => {
-                if let Some(ref mut form) = self.form_state {
-                    form.cycle_enum_forward();
-                }
-            }
-            Action::FormEnumPrev => {
-                if let Some(ref mut form) = self.form_state {
-                    form.cycle_enum_backward();
                 }
             }
             Action::FormInputChar(c) => {
@@ -207,14 +164,6 @@ impl App {
                 if let Some(ref mut form) = self.form_state {
                     form.pop_char();
                 }
-            }
-            Action::FormSubmit => {
-                // Handled by dispatch layer which reads form_state to build the call.
-            }
-            Action::FormCancel => {
-                self.form_state = None;
-                self.input_mode = InputMode::Normal;
-                self.focus = PanelFocus::Detail;
             }
 
             // --- Navigation ---
@@ -317,13 +266,6 @@ impl App {
                     _ => {}
                 }
             }
-            Action::FilterClear => {
-                self.filter_text.clear();
-                self.apply_filter();
-                if self.input_mode == InputMode::Filter {
-                    self.input_mode = InputMode::Normal;
-                }
-            }
             Action::PasteText(text) => {
                 // Paste: insert all chars into the active text input
                 for c in text.chars() {
@@ -359,7 +301,12 @@ impl App {
                     InputMode::Normal => {
                         match self.focus {
                             PanelFocus::ToolList | PanelFocus::Detail => {
-                                self.open_form_for_selected();
+                                if self.selected_tool_needs_input() {
+                                    self.open_form_for_selected();
+                                } else {
+                                    // No user input needed — execute immediately
+                                    self.execute_requested = true;
+                                }
                             }
                             PanelFocus::Form => {
                                 // Start editing the selected field (only if there are visible fields)
@@ -426,8 +373,6 @@ impl App {
             Action::ToolsLoaded(tools) => {
                 self.set_tools(tools);
             }
-
-            Action::Tick | Action::Render => {}
         }
     }
 
@@ -499,6 +444,7 @@ impl App {
 
     /// Check if the selected tool needs user-editable parameters.
     /// Returns true if the tool has required fields that aren't managed.
+    #[allow(dead_code)]
     pub fn selected_tool_needs_input(&self) -> bool {
         if let Some(entry) = self.selected_tool() {
             let managed = self.managed_fields();
@@ -618,12 +564,4 @@ impl App {
             .unwrap_or_else(|| "(not authenticated)".to_string())
     }
 
-    pub fn server_status_icon(&self, server: ServerIdentity) -> &'static str {
-        match self.server_state.get(&server) {
-            Some(ConnectionState::Connected) => "●",
-            Some(ConnectionState::Connecting) => "◐",
-            Some(ConnectionState::Error) => "✗",
-            _ => "○",
-        }
-    }
 }

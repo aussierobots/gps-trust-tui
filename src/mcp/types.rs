@@ -70,7 +70,9 @@ pub struct ToolCallRequest {
 /// Tracks an in-flight task.
 #[derive(Debug, Clone)]
 pub struct ActiveTask {
+    #[allow(dead_code)]
     pub server: ServerIdentity,
+    #[allow(dead_code)]
     pub task: Task,
     pub tool_name: String,
     pub progress: Option<f64>,
