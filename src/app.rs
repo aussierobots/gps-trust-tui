@@ -61,6 +61,10 @@ pub struct App {
 
     // Execute signal — set by 'e' in form, consumed by main loop
     pub execute_requested: bool,
+    // Reconnect signal — set by 'r', consumed by main loop
+    pub reconnect_requested: bool,
+    // Logout signal — set by 'L', consumed by main loop after quit
+    pub logout_requested: bool,
 }
 
 impl App {
@@ -84,6 +88,8 @@ impl App {
             result_state: None,
             active_task: None,
             execute_requested: false,
+            reconnect_requested: false,
+            logout_requested: false,
         }
     }
 
@@ -420,7 +426,14 @@ impl App {
                         self.execute_requested = true;
                     }
                 }
-                _ => {} // Ignore other chars in Normal mode
+                'r' => {
+                    self.reconnect_requested = true;
+                }
+                'L' => {
+                    self.logout_requested = true;
+                    self.should_quit = true;
+                }
+                _ => {}
             },
             InputMode::Login => {}
         }

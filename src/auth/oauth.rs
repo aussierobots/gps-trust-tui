@@ -13,7 +13,7 @@ use crate::auth::session::{AuthSession, ServerCredentials};
 use crate::auth::token_store::{StoredToken, TokenStore};
 use crate::mcp::types::ServerIdentity;
 
-const AUTH_BASE: &str = "https://auth.aussierobots.com.au";
+pub const AUTH_BASE: &str = "https://auth.aussierobots.com.au";
 const REDIRECT_URI: &str = "http://127.0.0.1:19876/callback";
 const CALLBACK_ADDR: &str = "127.0.0.1:19876";
 
@@ -294,60 +294,70 @@ async fn authorize(
 
 /// Wait for the OAuth callback on the localhost listener.
 async fn wait_for_callback(listener: &TcpListener, expected_state: &str) -> Result<String> {
-    let (mut stream, _addr) = listener
-        .accept()
-        .await
-        .context("failed to accept callback connection")?;
+    // Loop: accept connections until we get the right callback.
+    // Stale browser tabs, favicon requests, etc. are dismissed gracefully.
+    loop {
+        let (mut stream, _addr) = listener
+            .accept()
+            .await
+            .context("failed to accept callback connection")?;
 
-    let mut buf = vec![0u8; 4096];
-    let n = stream
-        .read(&mut buf)
-        .await
-        .context("failed to read callback request")?;
-    let request = String::from_utf8_lossy(&buf[..n]);
+        let mut buf = vec![0u8; 4096];
+        let n = stream
+            .read(&mut buf)
+            .await
+            .context("failed to read callback request")?;
+        let request = String::from_utf8_lossy(&buf[..n]);
 
-    // Parse GET /callback?code=...&state=... HTTP/1.1
-    let query = request
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().nth(1))
-        .and_then(|path| path.split('?').nth(1))
-        .unwrap_or("");
+        // Parse GET /callback?code=...&state=... HTTP/1.1
+        let query = request
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|path| path.split('?').nth(1))
+            .unwrap_or("");
 
-    let params: HashMap<&str, &str> = query
-        .split('&')
-        .filter_map(|pair| {
-            let mut parts = pair.splitn(2, '=');
-            Some((parts.next()?, parts.next()?))
-        })
-        .collect();
+        let params: HashMap<&str, &str> = query
+            .split('&')
+            .filter_map(|pair| {
+                let mut parts = pair.splitn(2, '=');
+                Some((parts.next()?, parts.next()?))
+            })
+            .collect();
 
-    let state = params.get("state").context("callback missing state param")?;
-    if *state != expected_state {
-        bail!("OAuth state mismatch");
-    }
+        let state = match params.get("state") {
+            Some(s) => *s,
+            None => {
+                // Not an OAuth callback (favicon, stale tab, etc.) — dismiss
+                let _ = send_html(&mut stream, "Not an OAuth callback. You may close this tab.").await;
+                continue;
+            }
+        };
 
-    let code = params
-        .get("code")
-        .context("callback missing code param")?
-        .to_string();
+        if state != expected_state {
+            // Stale callback from a previous session — dismiss and keep waiting
+            let _ = send_html(&mut stream, "Stale session. Waiting for current login...").await;
+            continue;
+        }
 
-    // Send a friendly HTML response
-    let body = "\
-<html><body>\
+        let code = match params.get("code") {
+            Some(c) => c.to_string(),
+            None => {
+                // Error callback (e.g. user denied consent)
+                let error = params.get("error").unwrap_or(&"unknown");
+                let desc = params.get("error_description").unwrap_or(&"");
+                let _ = send_html(&mut stream, &format!("Authorization failed: {} {}", error, desc)).await;
+                bail!("OAuth authorization denied: {} {}", error, desc);
+            }
+        };
+
+        let _ = send_html(&mut stream, "\
 <script>window.close();</script>\
 <h2>Authentication successful</h2>\
-<p>This tab should close automatically. If not, you may close it.</p>\
-</body></html>";
-    let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    let _ = stream.write_all(response.as_bytes()).await;
-    let _ = stream.flush().await;
+<p>This tab should close automatically. If not, you may close it.</p>").await;
 
-    Ok(code)
+        return Ok(code);
+    }
 }
 
 /// Exchange an authorization code for tokens.
@@ -466,6 +476,19 @@ fn chrono_now() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
+}
+
+/// Send an HTML response on the callback stream.
+async fn send_html(stream: &mut tokio::net::TcpStream, body_content: &str) -> Result<()> {
+    let body = format!("<html><body>{body_content}</body></html>");
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    stream.write_all(response.as_bytes()).await?;
+    stream.flush().await?;
+    Ok(())
 }
 
 #[derive(Debug, serde::Deserialize)]

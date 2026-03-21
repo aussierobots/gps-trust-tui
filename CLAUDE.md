@@ -11,13 +11,16 @@ cargo run --bin gt-ui           # Run (OAuth default)
 cargo run --bin gt-ui -- --help # CLI help
 cargo run --bin gt-ui -- --api-key <key>  # API key mode
 cargo run --bin gt-ui -- --no-oauth --api-key <key>  # API key only
+cargo run --bin gt-ui -- call account_devices        # CLI tool call
+cargo test                                           # Run tests
 ```
 
 ## Architecture
 
 ```
 src/
-  main.rs              — CLI (clap), tokio runtime, startup flow, execute dispatch
+  main.rs              — CLI (clap), tokio runtime, subcommand dispatch, TUI event loop
+  call.rs              — CLI `call` subcommand: parse_params, extract_json, run_call
   app.rs               — App state, update() reducer, handle_char() routing
   event.rs             — EventHandler (crossterm → mpsc), bracketed paste
   action.rs            — Action enum (all user + system + MCP actions)

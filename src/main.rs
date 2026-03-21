@@ -1,6 +1,7 @@
 mod action;
 mod app;
 mod auth;
+mod call;
 mod event;
 mod mcp;
 mod tui;
@@ -10,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use tokio::sync::{mpsc, Mutex};
 use tracing::{error, info, warn};
 
@@ -45,6 +46,24 @@ struct Cli {
     /// Agent MCP server URL
     #[arg(long, default_value = "https://agent.aussierobots.com.au/mcp")]
     agent_url: String,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Call an MCP tool and print JSON result to stdout
+    Call {
+        /// Tool name (e.g. account_devices, device_location)
+        tool_name: String,
+
+        /// Tool parameters as key=value pairs
+        #[arg(short, long = "param", value_name = "KEY=VALUE")]
+        params: Vec<String>,
+    },
+    /// Clear stored OAuth tokens and log out
+    Logout,
 }
 
 #[tokio::main]
@@ -59,18 +78,40 @@ async fn main() -> anyhow::Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    run(cli).await
+    let use_oauth = cli.oauth && !cli.no_oauth;
+
+    match cli.command {
+        Some(Command::Call { tool_name, params }) => {
+            call::run_call(
+                &tool_name,
+                &params,
+                cli.api_key,
+                use_oauth,
+                &cli.user_url,
+                &cli.agent_url,
+            )
+            .await
+        }
+        Some(Command::Logout) => {
+            auth::token_store::TokenStore::delete()?;
+            let logout_url = format!("{}/logout", auth::oauth::AUTH_BASE);
+            eprintln!("Clearing server session...");
+            let _ = open::that(&logout_url);
+            eprintln!("Logged out. Tokens and session cleared.");
+            Ok(())
+        }
+        None => run_tui(cli.api_key, use_oauth, cli.user_url, cli.agent_url).await,
+    }
 }
 
-async fn run(cli: Cli) -> anyhow::Result<()> {
+async fn run_tui(
+    api_key: Option<String>,
+    use_oauth: bool,
+    user_url: String,
+    agent_url: String,
+) -> anyhow::Result<()> {
     // --- Phase 1: Authenticate (before entering TUI) ---
-    let use_oauth = cli.oauth && !cli.no_oauth;
-    let auth_manager = AuthManager::new(
-        cli.api_key,
-        use_oauth,
-        cli.user_url.clone(),
-        cli.agent_url.clone(),
-    );
+    let auth_manager = AuthManager::new(api_key, use_oauth, user_url.clone(), agent_url.clone());
 
     eprintln!("Authenticating...");
     let session = auth_manager
@@ -82,7 +123,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     // --- Phase 2: Connect MCP servers (before entering TUI) ---
     let (action_tx, mut action_rx) = mpsc::unbounded_channel::<Action>();
 
-    let mut mcp_manager = McpManager::new(&session, &cli.user_url, &cli.agent_url)
+    let mut mcp_manager = McpManager::new(&session, &user_url, &agent_url)
         .context("failed to create MCP manager")?;
 
     eprintln!("Connecting to MCP servers...");
@@ -161,6 +202,30 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                     }
                 }
 
+                // Check if app wants to reconnect
+                if app.reconnect_requested {
+                    app.reconnect_requested = false;
+                    let mcp = Arc::clone(&mcp);
+                    let tx = action_tx.clone();
+                    tokio::spawn(async move {
+                        let mut manager = mcp.lock().await;
+                        match manager.reconnect_all(tx.clone()).await {
+                            Ok(()) => {
+                                info!("Reconnected to MCP servers");
+                                match manager.list_all_tools().await {
+                                    Ok(tools) => {
+                                        let _ = tx.send(Action::ToolsLoaded(tools));
+                                    }
+                                    Err(e) => warn!(error = %e, "Failed to list tools after reconnect"),
+                                }
+                            }
+                            Err(e) => {
+                                error!(error = %e, "Reconnect failed");
+                            }
+                        }
+                    });
+                }
+
                 // Side effects that need async (MCP calls)
                 match &action {
                     Action::McpToolsRefreshed(_) => {
@@ -197,6 +262,14 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     // Best-effort disconnect
     let manager = mcp.lock().await;
     let _ = manager.disconnect_all().await;
+
+    // Handle logout if requested
+    if app.logout_requested {
+        auth::token_store::TokenStore::delete()?;
+        let logout_url = format!("{}/logout", auth::oauth::AUTH_BASE);
+        let _ = open::that(&logout_url);
+        eprintln!("Logged out. Tokens and session cleared.");
+    }
 
     Ok(())
 }

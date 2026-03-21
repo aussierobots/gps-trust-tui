@@ -2,6 +2,8 @@ pub mod client;
 pub mod notifications;
 pub mod types;
 
+use std::collections::HashMap;
+
 use anyhow::{Context, Result};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, info};
@@ -17,6 +19,11 @@ pub struct McpManager {
     user_client: McpServerClient,
     agent_client: McpServerClient,
     managed_fields: ManagedFieldsPolicy,
+    // Stored for reconnect — clients need to be rebuilt from scratch
+    user_url: String,
+    agent_url: String,
+    user_headers: HashMap<String, String>,
+    agent_headers: HashMap<String, String>,
 }
 
 impl McpManager {
@@ -26,10 +33,10 @@ impl McpManager {
         let agent_headers = session.headers_for(&ServerIdentity::Agent);
 
         let user_client =
-            McpServerClient::new(ServerIdentity::User, user_url, user_headers)
+            McpServerClient::new(ServerIdentity::User, user_url, user_headers.clone())
                 .context("failed to create User MCP client")?;
         let agent_client =
-            McpServerClient::new(ServerIdentity::Agent, agent_url, agent_headers)
+            McpServerClient::new(ServerIdentity::Agent, agent_url, agent_headers.clone())
                 .context("failed to create Agent MCP client")?;
 
         let managed_fields = ManagedFieldsPolicy::new(&session.account_id);
@@ -38,6 +45,10 @@ impl McpManager {
             user_client,
             agent_client,
             managed_fields,
+            user_url: user_url.to_string(),
+            agent_url: agent_url.to_string(),
+            user_headers,
+            agent_headers,
         })
     }
 
@@ -61,6 +72,24 @@ impl McpManager {
 
         info!("Both MCP servers connected");
         Ok(())
+    }
+
+    /// Rebuild clients and reconnect. Used when connections drop.
+    pub async fn reconnect_all(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
+        // Best-effort disconnect old clients
+        let _ = self.user_client.disconnect().await;
+        let _ = self.agent_client.disconnect().await;
+
+        // Rebuild clients from scratch
+        self.user_client =
+            McpServerClient::new(ServerIdentity::User, &self.user_url, self.user_headers.clone())
+                .context("failed to rebuild User MCP client")?;
+        self.agent_client =
+            McpServerClient::new(ServerIdentity::Agent, &self.agent_url, self.agent_headers.clone())
+                .context("failed to rebuild Agent MCP client")?;
+
+        // Connect fresh clients
+        self.connect_all(tx).await
     }
 
     /// List all tools from both servers, tagged by origin.
@@ -95,10 +124,7 @@ impl McpManager {
     }
 
     /// Call a tool, routing to the correct server.
-    ///
-    /// Managed fields are injected before dispatch.
     pub async fn call_tool(&self, mut request: ToolCallRequest) -> Result<CallToolResult> {
-        // Inject managed fields (e.g. account_id)
         self.managed_fields
             .inject(&mut request.arguments)
             .map_err(|e| anyhow::anyhow!(e))?;
@@ -111,7 +137,6 @@ impl McpManager {
 
     /// Disconnect both servers.
     pub async fn disconnect_all(&self) -> Result<()> {
-        // Best-effort disconnect both; report first error
         let r1 = self.user_client.disconnect().await;
         let r2 = self.agent_client.disconnect().await;
         r1?;

@@ -60,4 +60,13 @@ impl TokenStore {
 
         Ok(())
     }
+
+    /// Delete the token store file from disk.
+    pub fn delete() -> Result<()> {
+        let path = Self::path()?;
+        if path.exists() {
+            std::fs::remove_file(&path).context("failed to delete token store")?;
+        }
+        Ok(())
+    }
 }

@@ -115,7 +115,8 @@ fn key_hints(app: &App) -> String {
         InputMode::Login => "Authenticating...".to_string(),
         InputMode::Normal => match app.focus {
             PanelFocus::ToolList => {
-                "j/k: navigate | Enter: open | /: filter | Tab: next pane | q: quit".to_string()
+                "j/k: nav | Enter: open | /: filter | Tab: focus | r: reconnect | L: logout | q: quit"
+                    .to_string()
             }
             PanelFocus::Detail => {
                 "Enter: edit params | e: execute | Tab: next pane | Esc: back | q: quit"
