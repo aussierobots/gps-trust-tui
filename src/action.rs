@@ -11,6 +11,7 @@ pub enum Action {
     McpConnecting(ServerIdentity),
     McpConnected(ServerIdentity),
     McpDisconnected(ServerIdentity),
+    #[allow(dead_code)]
     McpError(ServerIdentity, String),
     McpToolsRefreshed(ServerIdentity),
     McpProgress {

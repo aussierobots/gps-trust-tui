@@ -179,10 +179,12 @@ impl McpServerClient {
             let _ = lost_tx.send(Action::McpDisconnected(identity));
         });
 
-        let err_tx = tx;
+        let _err_tx = tx;
         handler.on_error(move |msg: String| {
-            warn!(server = %identity, error = %msg, "MCP stream error");
-            let _ = err_tx.send(Action::McpError(identity, msg));
+            // Log but don't set connection state to Error — stream errors are
+            // expected on HTTP transport (no persistent event stream).
+            // Connection state is only meaningful for SSE transports.
+            warn!(server = %identity, error = %msg, "MCP stream error (non-fatal)");
         });
     }
 }
