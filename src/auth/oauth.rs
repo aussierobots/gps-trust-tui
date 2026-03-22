@@ -185,11 +185,13 @@ async fn resolve_entity_name(
             });
             if let Some(text) = text {
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
-                    let name = parsed["entityName"]
+                    // Response may be wrapped: {"entityInfoOutput": {...}}
+                    let info = parsed.get("entityInfoOutput").unwrap_or(&parsed);
+                    let name = info["entityName"]
                         .as_str()
                         .unwrap_or(account_id)
                         .to_string();
-                    let etype = parsed["entityType"]
+                    let etype = info["entityType"]
                         .as_str()
                         .unwrap_or("account")
                         .to_string();

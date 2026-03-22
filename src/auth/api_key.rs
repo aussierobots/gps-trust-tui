@@ -54,15 +54,22 @@ pub async fn authenticate(api_key: &str, user_url: &str) -> Result<AuthSession> 
     let parsed: serde_json::Value =
         serde_json::from_str(&text).context("entity_info returned invalid JSON")?;
 
-    let account_id = parsed["accountId"]
+    // Response is wrapped: {"entityInfoOutput": {"accountId": ..., ...}}
+    let info = if let Some(inner) = parsed.get("entityInfoOutput") {
+        inner
+    } else {
+        &parsed
+    };
+
+    let account_id = info["accountId"]
         .as_str()
         .context("missing accountId in entity_info response")?
         .to_string();
-    let display_name = parsed["entityName"]
+    let display_name = info["entityName"]
         .as_str()
         .unwrap_or("Unknown")
         .to_string();
-    let entity_type = parsed["entityType"]
+    let entity_type = info["entityType"]
         .as_str()
         .unwrap_or("account")
         .to_string();
