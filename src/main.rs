@@ -25,26 +25,41 @@ use crate::ui::result_view::ResultState;
 use crate::ui::tool_form::assemble_args;
 
 #[derive(Parser, Debug)]
-#[command(name = "gttui", about = "GPS Trust MCP Terminal UI")]
+#[command(
+    name = "gttui",
+    version,
+    about = "GPS Trust MCP Terminal UI and CLI",
+    long_about = "Interactive TUI and CLI for GPS Trust MCP servers.\n\n\
+                  Run without a command to launch the interactive TUI.\n\
+                  Use 'call' to execute a tool from the command line.\n\n\
+                  Auth: OAuth 2.1 by default. Use --api-key to authenticate with an API key.\n\n\
+                  Examples:\n  \
+                    gttui                                    Launch TUI (OAuth login)\n  \
+                    gttui --api-key <key>                    Launch TUI with API key\n  \
+                    gttui call account_devices               Call a tool, JSON to stdout\n  \
+                    gttui call entity_info -o yaml           Call a tool, YAML output\n  \
+                    gttui call account_devices | jq .        Pipe to jq\n  \
+                    gttui logout                             Clear session and tokens"
+)]
 struct Cli {
-    /// API key for MCP server authentication
+    /// API key (skips OAuth when provided)
     #[arg(long, env = "GPS_TRUST_API_KEY")]
     api_key: Option<String>,
 
-    /// Use OAuth 2.1 authentication [default: true, --no-oauth to disable]
-    #[arg(long, default_value_t = true, overrides_with = "no_oauth")]
+    /// Use OAuth 2.1 login [default: true]
+    #[arg(long, default_value_t = true, overrides_with = "no_oauth", hide = true)]
     oauth: bool,
 
-    /// Disable OAuth (use API key only)
+    /// Skip OAuth, require --api-key
     #[arg(long = "no-oauth", action = clap::ArgAction::SetTrue)]
     no_oauth: bool,
 
     /// User MCP server URL
-    #[arg(long, default_value = "https://gt.aussierobots.com.au/mcp")]
+    #[arg(long, default_value = "https://gt.aussierobots.com.au/mcp", hide_default_value = true)]
     user_url: String,
 
     /// Agent MCP server URL
-    #[arg(long, default_value = "https://agent.aussierobots.com.au/mcp")]
+    #[arg(long, default_value = "https://agent.aussierobots.com.au/mcp", hide_default_value = true)]
     agent_url: String,
 
     #[command(subcommand)]
@@ -58,11 +73,11 @@ enum Command {
         /// Tool name (e.g. account_devices, device_location)
         tool_name: String,
 
-        /// Tool parameters as key=value pairs
+        /// Parameters as key=value (values auto-detect type)
         #[arg(short, long = "param", value_name = "KEY=VALUE")]
         params: Vec<String>,
 
-        /// Output format
+        /// Output format: json, yaml, toml, toon
         #[arg(short, long, default_value = "json", value_parser = ["json", "yaml", "toml", "toon"])]
         output: String,
     },
