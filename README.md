@@ -64,6 +64,9 @@ gttui call account_devices
 # Call with parameters
 gttui call device_location -p device_id=D#018f9ed3c...
 
+# Output as YAML, TOML, or TOON
+gttui call account_devices -o yaml
+
 # Logout (clears tokens + server session)
 gttui logout
 ```
@@ -73,15 +76,31 @@ gttui logout
 | Command | Description |
 |---------|-------------|
 | *(none)* | Launch interactive TUI |
-| `call <tool> [-p key=value]...` | Execute a tool, print JSON to stdout |
+| `call <tool> [-p key=value]... [-o format]` | Execute a tool, print result to stdout |
 | `logout` | Clear stored OAuth tokens and server session |
 
 ## CLI Tool Calling
 
-The `call` subcommand executes a single MCP tool and prints the JSON result to stdout. Useful for scripting, piping to `jq`, or integrating with other tools.
+The `call` subcommand executes a single MCP tool and prints the result to stdout. Useful for scripting, piping to `jq`, or feeding into LLMs.
 
 ```bash
-gttui call <TOOL_NAME> [-p KEY=VALUE]...
+gttui call <TOOL_NAME> [-p KEY=VALUE]... [-o FORMAT]
+```
+
+### Output Formats
+
+| Format | Flag | Description |
+|--------|------|-------------|
+| JSON | `-o json` (default) | Pretty-printed JSON, pipe-friendly with `jq` |
+| YAML | `-o yaml` | Human-readable, good for config/review |
+| TOML | `-o toml` | Config-friendly key-value format |
+| TOON | `-o toon` | Token-efficient format for LLM prompts (~40% fewer tokens) |
+
+```bash
+gttui call account_devices                 # JSON (default)
+gttui call account_devices -o yaml         # YAML
+gttui call account_devices -o toml         # TOML
+gttui call account_devices -o toon         # TOON (compact, LLM-friendly)
 ```
 
 ### Parameter Types
