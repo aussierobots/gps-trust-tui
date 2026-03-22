@@ -37,44 +37,27 @@ impl AuthManager {
 
     /// Authenticate using the configured strategy:
     ///
-    /// - `--api-key` + `--oauth` (default): OAuth for identity, API key as fallback
-    /// - `--api-key` + `--no-oauth`: API key only for both servers
-    /// - `--oauth` without API key: OAuth only
-    /// - Neither: error
+    /// - `--api-key` provided: use API key (regardless of --oauth flag)
+    /// - No API key + OAuth enabled: OAuth flow
+    /// - No API key + `--no-oauth`: error
     pub async fn authenticate(&self) -> Result<AuthSession> {
-        match (self.api_key.as_ref(), self.oauth) {
-            // OAuth enabled (with or without API key)
-            (_, true) => {
-                info!("Using OAuth 2.1 authentication");
-                let session = oauth::authenticate(&self.user_url, &self.agent_url).await;
-
-                match (session, self.api_key.as_ref()) {
-                    (Ok(session), _) => Ok(session),
-                    (Err(e), Some(key)) => {
-                        // OAuth failed but we have an API key — fall back
-                        info!(
-                            error = %e,
-                            "OAuth failed, falling back to API key authentication"
-                        );
-                        api_key::authenticate(key, &self.user_url).await
-                    }
-                    (Err(e), None) => Err(e).context("OAuth authentication failed"),
-                }
-            }
-
-            // API key only (--no-oauth)
-            (Some(key), false) => {
-                info!("Using API key authentication");
-                api_key::authenticate(key, &self.user_url).await
-            }
-
-            // No auth method available
-            (None, false) => {
-                anyhow::bail!(
-                    "No authentication method available. \
-                     Use --api-key <key> or --oauth (default)"
-                )
-            }
+        // API key takes priority when provided
+        if let Some(ref key) = self.api_key {
+            info!("Using API key authentication");
+            return api_key::authenticate(key, &self.user_url).await;
         }
+
+        // No API key — try OAuth
+        if self.oauth {
+            info!("Using OAuth 2.1 authentication");
+            return oauth::authenticate(&self.user_url, &self.agent_url)
+                .await
+                .context("OAuth authentication failed");
+        }
+
+        anyhow::bail!(
+            "No authentication method available. \
+             Use --api-key <key> or run without --no-oauth for OAuth login"
+        )
     }
 }
