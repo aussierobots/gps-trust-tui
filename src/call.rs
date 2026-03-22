@@ -97,26 +97,25 @@ fn json_to_toml(value: &serde_json::Value) -> toml::Value {
     }
 }
 
-/// Run a tool call from the CLI, printing result to stdout.
-pub async fn run_call(
-    tool_name: &str,
-    params: &[String],
-    output_format: &str,
+use crate::mcp::types::ToolEntry;
+
+// ---------------------------------------------------------------------------
+// Shared connect helper
+// ---------------------------------------------------------------------------
+
+/// Auth + connect + bootstrap + list tools. Used by all CLI subcommands.
+async fn connect_and_list(
     api_key: Option<String>,
     oauth: bool,
     user_url: &str,
     agent_url: &str,
-) -> Result<()> {
-    let arguments = parse_params(params)?;
-
-    // Build credentials (no MCP connection yet)
+) -> Result<(McpManager, Vec<ToolEntry>)> {
     let auth_manager = AuthManager::new(api_key, oauth, user_url.to_string(), agent_url.to_string());
     let session = auth_manager
         .authenticate()
         .await
         .context("authentication failed")?;
 
-    // Connect MCP servers + bootstrap identity on the connected session
     let (action_tx, _action_rx) = mpsc::unbounded_channel::<Action>();
     let mut mcp_manager = McpManager::new(&session, user_url, agent_url)
         .context("failed to create MCP manager")?;
@@ -129,13 +128,17 @@ pub async fn run_call(
         .await
         .context("failed to bootstrap identity")?;
 
-    // Resolve which server owns the tool
     let tools = mcp_manager
         .list_all_tools()
         .await
         .context("failed to list tools")?;
 
-    let tool_entry = tools
+    Ok((mcp_manager, tools))
+}
+
+/// Find a tool by name, or error with available tool names.
+fn find_tool<'a>(tools: &'a [ToolEntry], tool_name: &str) -> Result<&'a ToolEntry> {
+    tools
         .iter()
         .find(|t| t.tool.name == tool_name)
         .with_context(|| {
@@ -145,7 +148,26 @@ pub async fn run_call(
                 tool_name,
                 available.join(", ")
             )
-        })?;
+        })
+}
+
+// ---------------------------------------------------------------------------
+// Subcommands
+// ---------------------------------------------------------------------------
+
+/// Call a tool and print the result.
+pub async fn run_call(
+    tool_name: &str,
+    params: &[String],
+    output_format: &str,
+    api_key: Option<String>,
+    oauth: bool,
+    user_url: &str,
+    agent_url: &str,
+) -> Result<()> {
+    let arguments = parse_params(params)?;
+    let (mcp_manager, tools) = connect_and_list(api_key, oauth, user_url, agent_url).await?;
+    let tool_entry = find_tool(&tools, tool_name)?;
 
     info!(tool = %tool_name, server = %tool_entry.server, "Calling tool");
 
@@ -160,7 +182,6 @@ pub async fn run_call(
         .await
         .context("tool call failed")?;
 
-    // Check for MCP-level error
     if result.is_error == Some(true) {
         let error_text = result
             .content
@@ -173,15 +194,168 @@ pub async fn run_call(
         bail!("tool returned error: {}", error_text);
     }
 
-    // Extract and format output
     let output = extract_json(&result);
     let formatted = format_output(&output, output_format)?;
     println!("{formatted}");
 
-    // Cleanup
     let _ = mcp_manager.disconnect_all().await;
-
     Ok(())
+}
+
+/// Describe a tool — name, description, parameters, annotations.
+pub async fn run_describe(
+    tool_name: &str,
+    output_format: &str,
+    api_key: Option<String>,
+    oauth: bool,
+    user_url: &str,
+    agent_url: &str,
+) -> Result<()> {
+    let (mcp_manager, tools) = connect_and_list(api_key, oauth, user_url, agent_url).await?;
+    let entry = find_tool(&tools, tool_name)?;
+
+    let output = tool_to_description(entry);
+    let formatted = format_output(&output, output_format)?;
+    println!("{formatted}");
+
+    let _ = mcp_manager.disconnect_all().await;
+    Ok(())
+}
+
+/// List all available tools with name, server, and title.
+pub async fn run_tools(
+    output_format: &str,
+    api_key: Option<String>,
+    oauth: bool,
+    user_url: &str,
+    agent_url: &str,
+) -> Result<()> {
+    let (mcp_manager, tools) = connect_and_list(api_key, oauth, user_url, agent_url).await?;
+
+    let list: Vec<serde_json::Value> = tools
+        .iter()
+        .map(|entry| {
+            serde_json::json!({
+                "name": entry.tool.name,
+                "server": entry.server.label(),
+                "title": entry.display_name(),
+                "description": entry.tool.description.as_deref().unwrap_or(""),
+            })
+        })
+        .collect();
+
+    let output = serde_json::Value::Array(list);
+    let formatted = format_output(&output, output_format)?;
+    println!("{formatted}");
+
+    let _ = mcp_manager.disconnect_all().await;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Tool description builder
+// ---------------------------------------------------------------------------
+
+/// Build a JSON description of a tool including parameters and annotations.
+fn tool_to_description(entry: &ToolEntry) -> serde_json::Value {
+    let tool = &entry.tool;
+
+    let mut desc = serde_json::json!({
+        "name": tool.name,
+        "server": entry.server.label(),
+        "title": entry.display_name(),
+        "description": tool.description.as_deref().unwrap_or(""),
+    });
+
+    // Parameters from input_schema
+    if let Some(ref props) = tool.input_schema.properties {
+        let required: Vec<&str> = tool
+            .input_schema
+            .required
+            .as_ref()
+            .map(|r| r.iter().map(String::as_str).collect())
+            .unwrap_or_default();
+
+        let params: serde_json::Map<String, serde_json::Value> = props
+            .iter()
+            .map(|(name, schema)| {
+                let mut param = serde_json::json!({
+                    "type": schema_type_str(schema),
+                    "required": required.contains(&name.as_str()),
+                });
+                if let Some(desc) = schema_desc(schema) {
+                    param["description"] = serde_json::Value::String(desc.to_string());
+                }
+                (name.clone(), param)
+            })
+            .collect();
+
+        desc["parameters"] = serde_json::Value::Object(params);
+    }
+
+    // Annotations
+    if let Some(ref ann) = tool.annotations {
+        let mut annotations = serde_json::Map::new();
+        if let Some(read_only) = ann.read_only_hint {
+            annotations.insert("readOnly".to_string(), serde_json::Value::Bool(read_only));
+        }
+        if let Some(destructive) = ann.destructive_hint {
+            annotations.insert(
+                "destructive".to_string(),
+                serde_json::Value::Bool(destructive),
+            );
+        }
+        if let Some(idempotent) = ann.idempotent_hint {
+            annotations.insert(
+                "idempotent".to_string(),
+                serde_json::Value::Bool(idempotent),
+            );
+        }
+        if let Some(open_world) = ann.open_world_hint {
+            annotations.insert(
+                "openWorld".to_string(),
+                serde_json::Value::Bool(open_world),
+            );
+        }
+        if !annotations.is_empty() {
+            desc["annotations"] = serde_json::Value::Object(annotations);
+        }
+    }
+
+    // Task support
+    if let Some(ref exec) = tool.execution {
+        if let Some(ref ts) = exec.task_support {
+            desc["taskSupport"] = serde_json::Value::String(format!("{:?}", ts).to_lowercase());
+        }
+    }
+
+    desc
+}
+
+/// Extract type name from JsonSchema.
+fn schema_type_str(schema: &turul_mcp_protocol::JsonSchema) -> &'static str {
+    use turul_mcp_protocol::JsonSchema;
+    match schema {
+        JsonSchema::String { .. } => "string",
+        JsonSchema::Integer { .. } => "integer",
+        JsonSchema::Number { .. } => "number",
+        JsonSchema::Boolean { .. } => "boolean",
+        JsonSchema::Array { .. } => "array",
+        JsonSchema::Object { .. } => "object",
+    }
+}
+
+/// Extract description from JsonSchema.
+fn schema_desc(schema: &turul_mcp_protocol::JsonSchema) -> Option<&str> {
+    use turul_mcp_protocol::JsonSchema;
+    match schema {
+        JsonSchema::String { description, .. }
+        | JsonSchema::Integer { description, .. }
+        | JsonSchema::Number { description, .. }
+        | JsonSchema::Boolean { description, .. }
+        | JsonSchema::Array { description, .. }
+        | JsonSchema::Object { description, .. } => description.as_deref(),
+    }
 }
 
 // ---------------------------------------------------------------------------

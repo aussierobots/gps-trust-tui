@@ -81,6 +81,21 @@ enum Command {
         #[arg(short, long, default_value = "json", value_parser = ["json", "yaml", "toml", "toon"])]
         output: String,
     },
+    /// Describe an MCP tool (name, parameters, annotations)
+    Describe {
+        /// Tool name (e.g. account_devices, device_location)
+        tool_name: String,
+
+        /// Output format: json, yaml, toml, toon
+        #[arg(short, long, default_value = "json", value_parser = ["json", "yaml", "toml", "toon"])]
+        output: String,
+    },
+    /// List all available tools
+    Tools {
+        /// Output format: json, yaml, toml, toon
+        #[arg(short, long, default_value = "json", value_parser = ["json", "yaml", "toml", "toon"])]
+        output: String,
+    },
     /// Clear stored OAuth tokens and log out
     Logout,
 }
@@ -104,6 +119,27 @@ async fn main() -> anyhow::Result<()> {
             call::run_call(
                 &tool_name,
                 &params,
+                &output,
+                cli.api_key,
+                use_oauth,
+                &cli.user_url,
+                &cli.agent_url,
+            )
+            .await
+        }
+        Some(Command::Describe { tool_name, output }) => {
+            call::run_describe(
+                &tool_name,
+                &output,
+                cli.api_key,
+                use_oauth,
+                &cli.user_url,
+                &cli.agent_url,
+            )
+            .await
+        }
+        Some(Command::Tools { output }) => {
+            call::run_tools(
                 &output,
                 cli.api_key,
                 use_oauth,
