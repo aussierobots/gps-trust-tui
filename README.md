@@ -14,13 +14,39 @@ Terminal UI and CLI for interacting with GPS Trust MCP servers. Connects to both
 
 ## Install
 
+### Prerequisites
+
+- [Rust](https://rustup.rs/) (2024 edition, 1.85+)
+- `~/.cargo/bin` must be in your `PATH`
+
+To check:
 ```bash
-# From source
+echo $PATH | tr ':' '\n' | grep cargo
+# Should show: /Users/<you>/.cargo/bin
+```
+
+If missing, add to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.):
+```bash
+export PATH="$HOME/.cargo/bin:$PATH"
+```
+
+### From source
+
+```bash
+# Clone and install
+git clone git@github.com:aussierobots/gps-trust-tui.git
+cd gps-trust-tui
 cargo install --path .
 
-# Or build without installing
+# Verify
+gttui --help
+```
+
+### Build without installing
+
+```bash
 cargo build --release
-# Binary at target/release/gttui
+# Binary at target/release/gttui — copy it wherever you like
 ```
 
 ## Quick Start
