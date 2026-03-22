@@ -50,10 +50,58 @@ pub fn extract_json(result: &turul_mcp_protocol::CallToolResult) -> serde_json::
     serde_json::Value::Null
 }
 
-/// Run a tool call from the CLI, printing JSON to stdout.
+/// Format a JSON value in the requested output format.
+pub fn format_output(value: &serde_json::Value, format: &str) -> Result<String> {
+    match format {
+        "json" => serde_json::to_string_pretty(value).context("JSON serialization failed"),
+        "yaml" => serde_yml::to_string(value).context("YAML serialization failed"),
+        "toml" => {
+            // TOML requires a top-level table. Wrap non-table values.
+            let toml_value = json_to_toml(value);
+            toml::to_string_pretty(&toml_value).context("TOML serialization failed")
+        }
+        "toon" => {
+            toon_format::encode::encode_default(value)
+                .map_err(|e| anyhow::anyhow!("TOON encoding failed: {e}"))
+        }
+        _ => bail!("unsupported output format: {format}"),
+    }
+}
+
+/// Convert a serde_json::Value to a toml::Value.
+/// TOML doesn't support null or top-level non-tables, so we handle those.
+fn json_to_toml(value: &serde_json::Value) -> toml::Value {
+    match value {
+        serde_json::Value::Null => toml::Value::String("null".to_string()),
+        serde_json::Value::Bool(b) => toml::Value::Boolean(*b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                toml::Value::Integer(i)
+            } else if let Some(f) = n.as_f64() {
+                toml::Value::Float(f)
+            } else {
+                toml::Value::String(n.to_string())
+            }
+        }
+        serde_json::Value::String(s) => toml::Value::String(s.clone()),
+        serde_json::Value::Array(arr) => {
+            toml::Value::Array(arr.iter().map(json_to_toml).collect())
+        }
+        serde_json::Value::Object(map) => {
+            let mut table = toml::map::Map::new();
+            for (k, v) in map {
+                table.insert(k.clone(), json_to_toml(v));
+            }
+            toml::Value::Table(table)
+        }
+    }
+}
+
+/// Run a tool call from the CLI, printing result to stdout.
 pub async fn run_call(
     tool_name: &str,
     params: &[String],
+    output_format: &str,
     api_key: Option<String>,
     oauth: bool,
     user_url: &str,
@@ -125,10 +173,10 @@ pub async fn run_call(
         bail!("tool returned error: {}", error_text);
     }
 
-    // Extract and print JSON
+    // Extract and format output
     let output = extract_json(&result);
-    let json_str = serde_json::to_string_pretty(&output)?;
-    println!("{json_str}");
+    let formatted = format_output(&output, output_format)?;
+    println!("{formatted}");
 
     // Cleanup
     let _ = mcp_manager.disconnect_all().await;
@@ -316,5 +364,61 @@ mod tests {
             meta: None,
         };
         assert_eq!(extract_json(&result), serde_json::json!({"found": true}));
+    }
+
+    // --- format_output tests ---
+
+    #[test]
+    fn test_format_json() {
+        let val = serde_json::json!({"name": "test", "count": 3});
+        let out = format_output(&val, "json").unwrap();
+        assert!(out.contains("\"name\": \"test\""));
+        assert!(out.contains("\"count\": 3"));
+    }
+
+    #[test]
+    fn test_format_yaml() {
+        let val = serde_json::json!({"name": "test", "count": 3});
+        let out = format_output(&val, "yaml").unwrap();
+        assert!(out.contains("name: test"));
+        assert!(out.contains("count: 3"));
+    }
+
+    #[test]
+    fn test_format_toml() {
+        let val = serde_json::json!({"name": "test", "count": 3});
+        let out = format_output(&val, "toml").unwrap();
+        assert!(out.contains("name = \"test\""));
+        assert!(out.contains("count = 3"));
+    }
+
+    #[test]
+    fn test_format_toon() {
+        let val = serde_json::json!({"name": "test", "items": [1, 2, 3]});
+        let out = format_output(&val, "toon").unwrap();
+        // TOON format should be more compact than JSON
+        assert!(out.len() < serde_json::to_string_pretty(&val).unwrap().len());
+        assert!(!out.is_empty());
+    }
+
+    #[test]
+    fn test_format_unsupported() {
+        let val = serde_json::json!({"x": 1});
+        let result = format_output(&val, "xml");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("unsupported"));
+    }
+
+    #[test]
+    fn test_format_toml_with_nested() {
+        let val = serde_json::json!({
+            "device": {
+                "id": "D#001",
+                "type": "F9P"
+            }
+        });
+        let out = format_output(&val, "toml").unwrap();
+        assert!(out.contains("[device]"));
+        assert!(out.contains("id = \"D#001\""));
     }
 }

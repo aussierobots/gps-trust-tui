@@ -53,7 +53,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Call an MCP tool and print JSON result to stdout
+    /// Call an MCP tool and print result to stdout
     Call {
         /// Tool name (e.g. account_devices, device_location)
         tool_name: String,
@@ -61,6 +61,10 @@ enum Command {
         /// Tool parameters as key=value pairs
         #[arg(short, long = "param", value_name = "KEY=VALUE")]
         params: Vec<String>,
+
+        /// Output format
+        #[arg(short, long, default_value = "json", value_parser = ["json", "yaml", "toml", "toon"])]
+        output: String,
     },
     /// Clear stored OAuth tokens and log out
     Logout,
@@ -81,10 +85,11 @@ async fn main() -> anyhow::Result<()> {
     let use_oauth = cli.oauth && !cli.no_oauth;
 
     match cli.command {
-        Some(Command::Call { tool_name, params }) => {
+        Some(Command::Call { tool_name, params, output }) => {
             call::run_call(
                 &tool_name,
                 &params,
+                &output,
                 cli.api_key,
                 use_oauth,
                 &cli.user_url,
