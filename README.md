@@ -1,4 +1,4 @@
-# gt-ui — GPS Trust MCP Terminal UI
+# gttui — GPS Trust MCP Terminal UI
 
 Terminal UI and CLI for interacting with GPS Trust MCP servers. Connects to both User MCP and Agent MCP servers simultaneously, providing an interactive tool browser and a scriptable `call` command for automation.
 
@@ -7,8 +7,8 @@ Terminal UI and CLI for interacting with GPS Trust MCP servers. Connects to both
 - **Dual MCP server connection** — User (26 tools) and Agent (25 tools) with live status indicators
 - **OAuth 2.1 + PKCE** authentication (default) with API key fallback
 - **Interactive TUI** — tool browser, schema-driven parameter forms, structured result view
-- **CLI tool calling** — `gt-ui call <tool> -p key=value` with JSON output to stdout
-- **Session management** — `gt-ui logout` clears local tokens and server session
+- **CLI tool calling** — `gttui call <tool> -p key=value` with JSON output to stdout
+- **Session management** — `gttui logout` clears local tokens and server session
 - **Reconnect** — `r` key rebuilds MCP connections without restarting
 - **Vim-style navigation** — `j`/`k`, `/` filter, `Tab` focus cycling
 
@@ -20,26 +20,26 @@ cargo install --path .
 
 # Or build without installing
 cargo build --release
-# Binary at target/release/gt-ui
+# Binary at target/release/gttui
 ```
 
 ## Quick Start
 
 ```bash
 # Interactive TUI (OAuth login — opens browser on first run)
-gt-ui
+gttui
 
 # Interactive TUI with API key
-gt-ui --api-key <key>
+gttui --api-key <key>
 
 # Call a tool directly (JSON to stdout)
-gt-ui call account_devices
+gttui call account_devices
 
 # Call with parameters
-gt-ui call device_location -p device_id=D#018f9ed3c...
+gttui call device_location -p device_id=D#018f9ed3c...
 
 # Logout (clears tokens + server session)
-gt-ui logout
+gttui logout
 ```
 
 ## Commands
@@ -55,7 +55,7 @@ gt-ui logout
 The `call` subcommand executes a single MCP tool and prints the JSON result to stdout. Useful for scripting, piping to `jq`, or integrating with other tools.
 
 ```bash
-gt-ui call <TOOL_NAME> [-p KEY=VALUE]...
+gttui call <TOOL_NAME> [-p KEY=VALUE]...
 ```
 
 ### Parameter Types
@@ -64,16 +64,16 @@ Values are auto-detected: numbers, booleans, and JSON objects parse automaticall
 
 ```bash
 # String (default)
-gt-ui call account_robot_devices -p robot_id=R#018f9e85c9097ece9eee7600c26f873e
+gttui call account_robot_devices -p robot_id=R#018f9e85c9097ece9eee7600c26f873e
 
 # Numbers
-gt-ui call lon_lat_to_geohash -p latitude=-33.8688 -p longitude=151.2093 -p precision=9
+gttui call lon_lat_to_geohash -p latitude=-33.8688 -p longitude=151.2093 -p precision=9
 
 # Booleans
-gt-ui call list_agents_for_entity -p entity_id=S#abc -p enabled_only=true
+gttui call list_agents_for_entity -p entity_id=S#abc -p enabled_only=true
 
 # Multiple parameters
-gt-ui call device_location_history -p device_id=D#001 -p limit=100
+gttui call device_location_history -p device_id=D#001 -p limit=100
 ```
 
 ### Piping and Scripting
@@ -82,17 +82,17 @@ All log/status output goes to stderr, keeping stdout clean for JSON:
 
 ```bash
 # Pretty-print with jq
-gt-ui call account_devices | jq .
+gttui call account_devices | jq .
 
 # Extract specific fields
-gt-ui call account_devices | jq '.devices[].deviceName'
+gttui call account_devices | jq '.devices[].deviceName'
 
 # Use in scripts
-ROBOT_ID=$(gt-ui call account_robots | jq -r '.robots[0].robotId')
-gt-ui call account_robot_devices -p robot_id=$ROBOT_ID
+ROBOT_ID=$(gttui call account_robots | jq -r '.robots[0].robotId')
+gttui call account_robot_devices -p robot_id=$ROBOT_ID
 
 # Save to file
-gt-ui call device_location -p device_id=D#001 > location.json
+gttui call device_location -p device_id=D#001 > location.json
 ```
 
 ### Error Handling
@@ -101,23 +101,23 @@ Tool errors exit with a non-zero status code and print the error to stderr:
 
 ```bash
 # Unknown tool
-gt-ui call nonexistent_tool
+gttui call nonexistent_tool
 # Error: tool 'nonexistent_tool' not found. Available tools: account_devices, ...
 
 # Missing required parameter
-gt-ui call account_robot_devices
+gttui call account_robot_devices
 # Error: tool returned error: ...
 ```
 
 ## Interactive TUI
 
-Running `gt-ui` without a subcommand launches the interactive terminal UI.
+Running `gttui` without a subcommand launches the interactive terminal UI.
 
 ### Layout
 
 ```
 +──────────────────────────────────────────────────────────────────+
-│ gt-ui  nick@aussierobots  [User:ok] [Agent:ok]  49 tools         │
+│ gttui  nick@aussierobots  [User:ok] [Agent:ok]  49 tools         │
 +──────────────────────+───────────────────────────────────────────+
 │  [U] Account Devices │  Account Devices  [U]                     │
 │  [U] Account Robots  │  account_devices                          │
@@ -190,14 +190,14 @@ Pass via `--api-key` flag or `GPS_TRUST_API_KEY` environment variable:
 
 ```bash
 # Flag
-gt-ui --api-key sk-your-key-here
+gttui --api-key sk-your-key-here
 
 # Environment variable
 export GPS_TRUST_API_KEY=sk-your-key-here
-gt-ui
+gttui
 
 # API key only (disable OAuth)
-gt-ui --no-oauth --api-key sk-your-key-here
+gttui --no-oauth --api-key sk-your-key-here
 ```
 
 ### Logout
@@ -205,7 +205,7 @@ gt-ui --no-oauth --api-key sk-your-key-here
 Clears local refresh tokens and invalidates the server session:
 
 ```bash
-gt-ui logout
+gttui logout
 ```
 
 In the TUI, press `L` (shift-L) to logout and quit. Next run will require a fresh browser login.

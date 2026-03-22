@@ -13,7 +13,7 @@ pub fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
 
     // App name
     spans.push(Span::styled(
-        " gt-ui",
+        " gttui",
         Style::default()
             .fg(Color::White)
             .add_modifier(Modifier::BOLD),

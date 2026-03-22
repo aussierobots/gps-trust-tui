@@ -25,7 +25,7 @@ use crate::ui::result_view::ResultState;
 use crate::ui::tool_form::assemble_args;
 
 #[derive(Parser, Debug)]
-#[command(name = "gt-ui", about = "GPS Trust MCP Terminal UI")]
+#[command(name = "gttui", about = "GPS Trust MCP Terminal UI")]
 struct Cli {
     /// API key for MCP server authentication
     #[arg(long, env = "GPS_TRUST_API_KEY")]

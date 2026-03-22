@@ -1,4 +1,4 @@
-# GPS Trust MCP TUI (gt-ui)
+# GPS Trust MCP TUI (gttui)
 
 Terminal UI for interacting with GPS Trust User MCP and Agent MCP servers via `turul-mcp-client 0.3.x`.
 
@@ -7,11 +7,11 @@ Terminal UI for interacting with GPS Trust User MCP and Agent MCP servers via `t
 ```bash
 cargo build                    # Debug build
 cargo build --release          # Release build
-cargo run --bin gt-ui           # Run (OAuth default)
-cargo run --bin gt-ui -- --help # CLI help
-cargo run --bin gt-ui -- --api-key <key>  # API key mode
-cargo run --bin gt-ui -- --no-oauth --api-key <key>  # API key only
-cargo run --bin gt-ui -- call account_devices        # CLI tool call
+cargo run --bin gttui           # Run (OAuth default)
+cargo run --bin gttui -- --help # CLI help
+cargo run --bin gttui -- --api-key <key>  # API key mode
+cargo run --bin gttui -- --no-oauth --api-key <key>  # API key only
+cargo run --bin gttui -- call account_devices        # CLI tool call
 cargo test                                           # Run tests
 ```
 
