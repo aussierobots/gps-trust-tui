@@ -110,7 +110,7 @@ async fn run_tui(
     user_url: String,
     agent_url: String,
 ) -> anyhow::Result<()> {
-    // --- Phase 1: Authenticate (before entering TUI) ---
+    // --- Phase 1: Build credentials ---
     let auth_manager = AuthManager::new(api_key, use_oauth, user_url.clone(), agent_url.clone());
 
     eprintln!("Authenticating...");
@@ -118,9 +118,8 @@ async fn run_tui(
         .authenticate()
         .await
         .context("authentication failed")?;
-    eprintln!("Authenticated as {}", session.display_name);
 
-    // --- Phase 2: Connect MCP servers (before entering TUI) ---
+    // --- Phase 2: Connect MCP servers + bootstrap identity ---
     let (action_tx, mut action_rx) = mpsc::unbounded_channel::<Action>();
 
     let mut mcp_manager = McpManager::new(&session, &user_url, &agent_url)
@@ -131,6 +130,19 @@ async fn run_tui(
         .connect_all(action_tx.clone())
         .await
         .context("failed to connect MCP servers")?;
+
+    // Resolve identity on the already-connected User session
+    let identity = mcp_manager
+        .bootstrap_identity()
+        .await
+        .context("failed to bootstrap identity")?;
+    eprintln!("Authenticated as {}", identity.display_name);
+
+    // Update session with resolved identity
+    let mut session = session;
+    session.account_id = identity.account_id;
+    session.display_name = identity.display_name;
+    session.entity_type = identity.entity_type;
 
     // List tools from both servers
     let tools = mcp_manager

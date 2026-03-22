@@ -61,14 +61,14 @@ pub async fn run_call(
 ) -> Result<()> {
     let arguments = parse_params(params)?;
 
-    // Authenticate
+    // Build credentials (no MCP connection yet)
     let auth_manager = AuthManager::new(api_key, oauth, user_url.to_string(), agent_url.to_string());
     let session = auth_manager
         .authenticate()
         .await
         .context("authentication failed")?;
 
-    // Connect MCP servers
+    // Connect MCP servers + bootstrap identity on the connected session
     let (action_tx, _action_rx) = mpsc::unbounded_channel::<Action>();
     let mut mcp_manager = McpManager::new(&session, user_url, agent_url)
         .context("failed to create MCP manager")?;
@@ -76,6 +76,10 @@ pub async fn run_call(
         .connect_all(action_tx)
         .await
         .context("failed to connect MCP servers")?;
+    mcp_manager
+        .bootstrap_identity()
+        .await
+        .context("failed to bootstrap identity")?;
 
     // Resolve which server owns the tool
     let tools = mcp_manager

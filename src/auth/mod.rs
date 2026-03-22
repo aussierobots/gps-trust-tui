@@ -4,7 +4,6 @@ pub mod session;
 pub mod token_store;
 
 use anyhow::{Context, Result};
-use tracing::info;
 
 use crate::auth::session::AuthSession;
 
@@ -35,21 +34,18 @@ impl AuthManager {
         }
     }
 
-    /// Authenticate using the configured strategy:
+    /// Build credentials. No MCP connections — identity is resolved later
+    /// via McpManager::bootstrap_identity().
     ///
-    /// - `--api-key` provided: use API key (regardless of --oauth flag)
-    /// - No API key + OAuth enabled: OAuth flow
-    /// - No API key + `--no-oauth`: error
+    /// - API key provided → use it (no network needed)
+    /// - No API key + OAuth → OAuth flow (browser login)
+    /// - Neither → error
     pub async fn authenticate(&self) -> Result<AuthSession> {
-        // API key takes priority when provided
         if let Some(ref key) = self.api_key {
-            info!("Using API key authentication");
-            return api_key::authenticate(key, &self.user_url).await;
+            return api_key::authenticate(key);
         }
 
-        // No API key — try OAuth
         if self.oauth {
-            info!("Using OAuth 2.1 authentication");
             return oauth::authenticate(&self.user_url, &self.agent_url)
                 .await
                 .context("OAuth authentication failed");

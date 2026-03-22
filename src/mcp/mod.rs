@@ -7,12 +7,19 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, info};
-use turul_mcp_protocol::CallToolResult;
+use turul_mcp_protocol::{CallToolResult, ContentBlock};
 
 use crate::action::Action;
 use crate::auth::session::AuthSession;
 use crate::mcp::client::McpServerClient;
 use crate::mcp::types::{ManagedFieldsPolicy, ServerIdentity, ToolCallRequest, ToolEntry};
+
+/// Identity resolved from entity_info on the connected User MCP session.
+pub struct IdentityInfo {
+    pub account_id: String,
+    pub display_name: String,
+    pub entity_type: String,
+}
 
 /// Orchestrates connections to both User and Agent MCP servers.
 pub struct McpManager {
@@ -28,6 +35,7 @@ pub struct McpManager {
 
 impl McpManager {
     /// Create the manager with both clients configured from the auth session.
+    /// ManagedFieldsPolicy starts empty — call bootstrap_identity() after connect.
     pub fn new(session: &AuthSession, user_url: &str, agent_url: &str) -> Result<Self> {
         let user_headers = session.headers_for(&ServerIdentity::User);
         let agent_headers = session.headers_for(&ServerIdentity::Agent);
@@ -39,7 +47,13 @@ impl McpManager {
             McpServerClient::new(ServerIdentity::Agent, agent_url, agent_headers.clone())
                 .context("failed to create Agent MCP client")?;
 
-        let managed_fields = ManagedFieldsPolicy::new(&session.account_id);
+        // Start with account_id from session if available (OAuth has it from JWT),
+        // otherwise empty — bootstrap_identity() will fill it in.
+        let managed_fields = if session.account_id.is_empty() {
+            ManagedFieldsPolicy::new("")
+        } else {
+            ManagedFieldsPolicy::new(&session.account_id)
+        };
 
         Ok(Self {
             user_client,
@@ -74,13 +88,66 @@ impl McpManager {
         Ok(())
     }
 
+    /// Call entity_info on the already-connected User client to resolve identity.
+    /// Updates managed_fields with the real account_id.
+    /// Call this after connect_all().
+    pub async fn bootstrap_identity(&mut self) -> Result<IdentityInfo> {
+        let result = self
+            .user_client
+            .call_tool("entity_info", serde_json::json!({}))
+            .await
+            .context("entity_info bootstrap call failed")?;
+
+        let text = result
+            .content
+            .into_iter()
+            .find_map(|block| match block {
+                ContentBlock::Text { text, .. } => Some(text),
+                _ => None,
+            })
+            .context("entity_info returned no text content")?;
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(&text).context("entity_info returned invalid JSON")?;
+
+        // Response may be wrapped: {"entityInfoOutput": {...}}
+        let info = parsed.get("entityInfoOutput").unwrap_or(&parsed);
+
+        let account_id = info["accountId"]
+            .as_str()
+            .context("missing accountId in entity_info response")?
+            .to_string();
+        let display_name = info["entityName"]
+            .as_str()
+            .unwrap_or("Unknown")
+            .to_string();
+        let entity_type = info["entityType"]
+            .as_str()
+            .unwrap_or("unknown")
+            .to_string();
+
+        // Update managed fields with the real account_id
+        self.managed_fields = ManagedFieldsPolicy::new(&account_id);
+
+        info!(
+            account_id = %account_id,
+            display_name = %display_name,
+            entity_type = %entity_type,
+            "Identity bootstrapped from entity_info"
+        );
+
+        Ok(IdentityInfo {
+            account_id,
+            display_name,
+            entity_type,
+        })
+    }
+
     /// Rebuild clients and reconnect. Used when connections drop.
     pub async fn reconnect_all(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
-        // Best-effort disconnect old clients
         let _ = self.user_client.disconnect().await;
         let _ = self.agent_client.disconnect().await;
 
-        // Rebuild clients from scratch
         self.user_client =
             McpServerClient::new(ServerIdentity::User, &self.user_url, self.user_headers.clone())
                 .context("failed to rebuild User MCP client")?;
@@ -88,7 +155,6 @@ impl McpManager {
             McpServerClient::new(ServerIdentity::Agent, &self.agent_url, self.agent_headers.clone())
                 .context("failed to rebuild Agent MCP client")?;
 
-        // Connect fresh clients
         self.connect_all(tx).await
     }
 

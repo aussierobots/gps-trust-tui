@@ -122,89 +122,16 @@ pub async fn authenticate(user_url: &str, agent_url: &str) -> Result<AuthSession
 
     store.save().context("failed to save tokens")?;
 
-    // Bootstrap entity name via User MCP entity_info call
-    let (display_name, entity_type) =
-        resolve_entity_name(user_url, &credentials, &account_id).await;
+    info!(account_id = %account_id, "OAuth authentication successful");
 
-    info!(account_id = %account_id, display_name = %display_name, "OAuth authentication successful");
-
+    // Identity (display_name, entity_type) resolved later via
+    // McpManager::bootstrap_identity() on the already-connected session.
     Ok(AuthSession {
         account_id,
-        display_name,
-        entity_type,
+        display_name: String::new(),
+        entity_type: String::new(),
         credentials,
     })
-}
-
-/// Call entity_info on the User MCP server to resolve the account display name.
-/// Best-effort: falls back to account_id if the call fails.
-async fn resolve_entity_name(
-    user_url: &str,
-    credentials: &HashMap<ServerIdentity, ServerCredentials>,
-    account_id: &str,
-) -> (String, String) {
-    use turul_mcp_client::config::{ClientConfig, ConnectionConfig};
-    use turul_mcp_client::McpClientBuilder;
-    use turul_mcp_protocol::ContentBlock;
-
-    let headers: HashMap<String, String> = match credentials.get(&ServerIdentity::User) {
-        Some(ServerCredentials::OAuth { access_token, .. }) => {
-            let mut h = HashMap::new();
-            h.insert("Authorization".to_string(), format!("Bearer {access_token}"));
-            h
-        }
-        _ => return (account_id.to_string(), "account".to_string()),
-    };
-
-    let config = ClientConfig {
-        connection: ConnectionConfig {
-            headers: Some(headers),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-
-    let Ok(builder) = McpClientBuilder::new().with_url(user_url) else {
-        return (account_id.to_string(), "account".to_string());
-    };
-    let client = builder.with_config(config).build();
-
-    if let Err(e) = client.connect().await {
-        warn!(error = %e, "resolve_entity_name: MCP connect failed");
-        return (account_id.to_string(), "account".to_string());
-    }
-
-    let result = client.call_tool("entity_info", serde_json::json!({})).await;
-    let _ = client.disconnect().await;
-
-    match result {
-        Ok(call_result) => {
-            let text = call_result.content.into_iter().find_map(|block| match block {
-                ContentBlock::Text { text, .. } => Some(text),
-                _ => None,
-            });
-            if let Some(text) = text {
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
-                    // Response may be wrapped: {"entityInfoOutput": {...}}
-                    let info = parsed.get("entityInfoOutput").unwrap_or(&parsed);
-                    let name = info["entityName"]
-                        .as_str()
-                        .unwrap_or(account_id)
-                        .to_string();
-                    let etype = info["entityType"]
-                        .as_str()
-                        .unwrap_or("account")
-                        .to_string();
-                    return (name, etype);
-                }
-            }
-            (account_id.to_string(), "account".to_string())
-        }
-        Err(e) => {
-            warn!(error = %e, "resolve_entity_name: entity_info call failed");
-            (account_id.to_string(), "account".to_string())
-        }
-    }
 }
 
 /// Dynamic Client Registration per RFC 7591.
