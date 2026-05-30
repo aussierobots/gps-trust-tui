@@ -2,53 +2,66 @@ pub mod client;
 pub mod notifications;
 pub mod types;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use turul_mcp_protocol::{CallToolResult, ContentBlock};
 
 use crate::action::Action;
 use crate::auth::session::AuthSession;
 use crate::mcp::client::McpServerClient;
-use crate::mcp::types::{ManagedFieldsPolicy, ServerIdentity, ToolCallRequest, ToolEntry};
+use crate::mcp::types::{
+    ManagedFieldsPolicy, ServerId, ServerRegistry, ToolCallRequest, ToolEntry,
+};
 
-/// Identity resolved from entity_info on the connected User MCP session.
+/// Identity resolved from entity_info on the connected identity-provider session.
 pub struct IdentityInfo {
     pub account_id: String,
     pub display_name: String,
     pub entity_type: String,
 }
 
-/// Orchestrates connections to both User and Agent MCP servers.
+/// Orchestrates connections to all configured MCP servers.
 pub struct McpManager {
-    user_client: McpServerClient,
-    agent_client: McpServerClient,
+    clients: HashMap<ServerId, McpServerClient>,
+    registry: ServerRegistry,
     managed_fields: ManagedFieldsPolicy,
-    // Stored for reconnect — clients need to be rebuilt from scratch
-    user_url: String,
-    agent_url: String,
-    user_headers: HashMap<String, String>,
-    agent_headers: HashMap<String, String>,
+    // Per-server headers, kept for reconnect (clients are rebuilt from scratch).
+    headers: HashMap<ServerId, HashMap<String, String>>,
+    // Registered servers with no credential — never connected, surfaced as Unauthorized.
+    unauthorized: Vec<ServerId>,
+    // Servers currently connected (updated by connect_all).
+    connected: HashSet<ServerId>,
 }
 
 impl McpManager {
-    /// Create the manager with both clients configured from the auth session.
-    /// ManagedFieldsPolicy starts empty — call bootstrap_identity() after connect.
-    pub fn new(session: &AuthSession, user_url: &str, agent_url: &str) -> Result<Self> {
-        let user_headers = session.headers_for(&ServerIdentity::User);
-        let agent_headers = session.headers_for(&ServerIdentity::Agent);
+    /// Create the manager with one client per *credentialed* server, configured
+    /// from the auth session. Servers without a credential are recorded as
+    /// unauthorized and never connected (fail-closed). ManagedFieldsPolicy
+    /// starts from the session's account_id (OAuth has it from the JWT);
+    /// bootstrap_identity() refines it.
+    pub fn new(session: &AuthSession, registry: &ServerRegistry) -> Result<Self> {
+        let mut clients = HashMap::new();
+        let mut headers = HashMap::new();
+        let mut unauthorized = Vec::new();
 
-        let user_client =
-            McpServerClient::new(ServerIdentity::User, user_url, user_headers.clone())
-                .context("failed to create User MCP client")?;
-        let agent_client =
-            McpServerClient::new(ServerIdentity::Agent, agent_url, agent_headers.clone())
-                .context("failed to create Agent MCP client")?;
+        for server in registry.iter() {
+            // Fail-closed: no *usable* credential (missing, or an OAuth token
+            // whose audience doesn't match this server) → no client.
+            if !session.has_usable_credential(server) {
+                unauthorized.push(server.clone());
+                continue;
+            }
+            let server_headers = session.headers_for(server);
+            let client =
+                McpServerClient::new(server.clone(), server.url(), server_headers.clone())
+                    .with_context(|| format!("failed to create {server} MCP client"))?;
+            clients.insert(server.clone(), client);
+            headers.insert(server.clone(), server_headers);
+        }
 
-        // Start with account_id from session if available (OAuth has it from JWT),
-        // otherwise empty — bootstrap_identity() will fill it in.
         let managed_fields = if session.account_id.is_empty() {
             ManagedFieldsPolicy::new("")
         } else {
@@ -56,44 +69,84 @@ impl McpManager {
         };
 
         Ok(Self {
-            user_client,
-            agent_client,
+            clients,
+            registry: registry.clone(),
             managed_fields,
-            user_url: user_url.to_string(),
-            agent_url: agent_url.to_string(),
-            user_headers,
-            agent_headers,
+            headers,
+            unauthorized,
+            connected: HashSet::new(),
         })
     }
 
-    /// Connect both servers and set up notification forwarding.
+    /// Connect every credentialed server. Fail-soft: a single server's failure
+    /// marks it errored and continues; only a total failure (zero connected)
+    /// aborts. Servers without a credential are surfaced as Unauthorized.
     pub async fn connect_all(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
-        let _ = tx.send(Action::McpConnecting(ServerIdentity::User));
-        self.user_client
-            .connect()
-            .await
-            .context("User MCP connect failed")?;
-        let _ = tx.send(Action::McpConnected(ServerIdentity::User));
-        self.user_client.setup_notifications(tx.clone()).await;
+        self.connected.clear();
 
-        let _ = tx.send(Action::McpConnecting(ServerIdentity::Agent));
-        self.agent_client
-            .connect()
-            .await
-            .context("Agent MCP connect failed")?;
-        let _ = tx.send(Action::McpConnected(ServerIdentity::Agent));
-        self.agent_client.setup_notifications(tx).await;
+        for server in &self.unauthorized {
+            warn!(server = %server, "no credential — marking server unauthorized");
+            let _ = tx.send(Action::McpUnauthorized(server.clone()));
+        }
 
-        info!("Both MCP servers connected");
+        let servers: Vec<ServerId> = self
+            .registry
+            .iter()
+            .filter(|s| self.clients.contains_key(*s))
+            .cloned()
+            .collect();
+
+        for server in &servers {
+            let client = self
+                .clients
+                .get_mut(server)
+                .expect("client exists for every credentialed server");
+
+            let _ = tx.send(Action::McpConnecting(server.clone()));
+            match client.connect().await {
+                Ok(()) => {
+                    let _ = tx.send(Action::McpConnected(server.clone()));
+                    client.setup_notifications(tx.clone()).await;
+                    self.connected.insert(server.clone());
+                }
+                Err(e) => {
+                    // Fail-soft: one server's failure must not abort the others.
+                    warn!(server = %server, error = %e, "MCP connect failed — continuing");
+                    let _ = tx.send(Action::McpError(server.clone(), e.to_string()));
+                }
+            }
+        }
+
+        if self.connected.is_empty() {
+            bail!("no MCP servers connected");
+        }
+        info!(
+            connected = self.connected.len(),
+            total = servers.len(),
+            "MCP connect complete"
+        );
         Ok(())
     }
 
-    /// Call entity_info on the already-connected User client to resolve identity.
-    /// Updates managed_fields with the real account_id.
-    /// Call this after connect_all().
+    /// Call entity_info on the connected identity-provider client to resolve
+    /// identity. Updates managed_fields with the real account_id. Call this
+    /// after connect_all(). Errors (soft) if the identity provider is not
+    /// connected — the caller falls back to the token's account_id.
     pub async fn bootstrap_identity(&mut self) -> Result<IdentityInfo> {
-        let result = self
-            .user_client
+        let provider = self
+            .registry
+            .identity_provider()
+            .cloned()
+            .context("no identity-provider server configured")?;
+        if !self.connected.contains(&provider) {
+            bail!("identity-provider server {provider} is not connected");
+        }
+        let client = self
+            .clients
+            .get(&provider)
+            .context("identity-provider client missing")?;
+
+        let result = client
             .call_tool("entity_info", serde_json::json!({}))
             .await
             .context("entity_info bootstrap call failed")?;
@@ -143,49 +196,55 @@ impl McpManager {
         })
     }
 
-    /// Rebuild clients and reconnect. Used when connections drop.
+    /// Rebuild all credentialed clients and reconnect. Used when connections drop.
     pub async fn reconnect_all(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
-        let _ = self.user_client.disconnect().await;
-        let _ = self.agent_client.disconnect().await;
+        for client in self.clients.values() {
+            let _ = client.disconnect().await;
+        }
 
-        self.user_client =
-            McpServerClient::new(ServerIdentity::User, &self.user_url, self.user_headers.clone())
-                .context("failed to rebuild User MCP client")?;
-        self.agent_client =
-            McpServerClient::new(ServerIdentity::Agent, &self.agent_url, self.agent_headers.clone())
-                .context("failed to rebuild Agent MCP client")?;
+        let mut clients = HashMap::new();
+        for server in self.registry.iter() {
+            // Only rebuild servers we hold credentials (headers) for.
+            let Some(server_headers) = self.headers.get(server).cloned() else {
+                continue;
+            };
+            let client = McpServerClient::new(server.clone(), server.url(), server_headers)
+                .with_context(|| format!("failed to rebuild {server} MCP client"))?;
+            clients.insert(server.clone(), client);
+        }
+        self.clients = clients;
 
         self.connect_all(tx).await
     }
 
-    /// List all tools from both servers, tagged by origin.
+    /// List all tools from every *connected* server, tagged by origin. Fail-soft:
+    /// a server whose listing fails is logged and skipped.
     pub async fn list_all_tools(&self) -> Result<Vec<ToolEntry>> {
-        let user_tools = self
-            .user_client
-            .list_all_tools()
-            .await
-            .context("User list_all_tools failed")?;
-        let agent_tools = self
-            .agent_client
-            .list_all_tools()
-            .await
-            .context("Agent list_all_tools failed")?;
-
-        let mut entries: Vec<ToolEntry> = Vec::with_capacity(user_tools.len() + agent_tools.len());
-        for tool in user_tools {
-            entries.push(ToolEntry {
-                server: ServerIdentity::User,
-                tool,
-            });
+        let mut entries: Vec<ToolEntry> = Vec::new();
+        for server in self.registry.iter() {
+            if !self.connected.contains(server) {
+                continue;
+            }
+            let client = self
+                .clients
+                .get(server)
+                .expect("connected client exists");
+            match client.list_all_tools().await {
+                Ok(tools) => {
+                    for tool in tools {
+                        entries.push(ToolEntry {
+                            server: server.clone(),
+                            tool,
+                        });
+                    }
+                }
+                Err(e) => {
+                    warn!(server = %server, error = %e, "list_all_tools failed — skipping server");
+                }
+            }
         }
-        for tool in agent_tools {
-            entries.push(ToolEntry {
-                server: ServerIdentity::Agent,
-                tool,
-            });
-        }
 
-        debug!(count = entries.len(), "Merged tool list from both servers");
+        debug!(count = entries.len(), "Merged tool list from connected servers");
         Ok(entries)
     }
 
@@ -195,25 +254,20 @@ impl McpManager {
             .inject(&mut request.arguments)
             .map_err(|e| anyhow::anyhow!(e))?;
 
-        let client = self.client_for(request.server);
+        let client = self
+            .clients
+            .get(&request.server)
+            .with_context(|| format!("server {} is not available", request.server))?;
         client
             .call_tool(&request.tool_name, request.arguments)
             .await
     }
 
-    /// Disconnect both servers.
+    /// Disconnect every server.
     pub async fn disconnect_all(&self) -> Result<()> {
-        let r1 = self.user_client.disconnect().await;
-        let r2 = self.agent_client.disconnect().await;
-        r1?;
-        r2?;
-        Ok(())
-    }
-
-    fn client_for(&self, server: ServerIdentity) -> &McpServerClient {
-        match server {
-            ServerIdentity::User => &self.user_client,
-            ServerIdentity::Agent => &self.agent_client,
+        for client in self.clients.values() {
+            client.disconnect().await?;
         }
+        Ok(())
     }
 }

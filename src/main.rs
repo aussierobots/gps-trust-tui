@@ -62,6 +62,11 @@ struct Cli {
     #[arg(long, default_value = "https://agent.aussierobots.com.au/mcp", hide_default_value = true)]
     agent_url: String,
 
+    /// Register an additional MCP server as KEY=URL (repeatable). Known keys
+    /// (pf, sv-track, space-data) get sensible labels; others are derived.
+    #[arg(long = "server", value_name = "KEY=URL")]
+    servers: Vec<String>,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -80,6 +85,10 @@ enum Command {
         /// Output format: json, yaml, toml, toon
         #[arg(short, long, default_value = "json", value_parser = ["json", "yaml", "toml", "toon"])]
         output: String,
+
+        /// Restrict to a server by key (disambiguates tool-name collisions)
+        #[arg(long, value_name = "SERVER")]
+        from: Option<String>,
     },
     /// Describe an MCP tool (name, parameters, annotations)
     Describe {
@@ -89,6 +98,10 @@ enum Command {
         /// Output format: json, yaml, toml, toon
         #[arg(short, long, default_value = "json", value_parser = ["json", "yaml", "toml", "toon"])]
         output: String,
+
+        /// Restrict to a server by key (disambiguates tool-name collisions)
+        #[arg(long, value_name = "SERVER")]
+        from: Option<String>,
     },
     /// List all available tools
     Tools {
@@ -115,26 +128,30 @@ async fn main() -> anyhow::Result<()> {
     let use_oauth = cli.oauth && !cli.no_oauth;
 
     match cli.command {
-        Some(Command::Call { tool_name, params, output }) => {
+        Some(Command::Call { tool_name, params, output, from }) => {
             call::run_call(
                 &tool_name,
                 &params,
                 &output,
+                from.as_deref(),
                 cli.api_key,
                 use_oauth,
                 &cli.user_url,
                 &cli.agent_url,
+                &cli.servers,
             )
             .await
         }
-        Some(Command::Describe { tool_name, output }) => {
+        Some(Command::Describe { tool_name, output, from }) => {
             call::run_describe(
                 &tool_name,
                 &output,
+                from.as_deref(),
                 cli.api_key,
                 use_oauth,
                 &cli.user_url,
                 &cli.agent_url,
+                &cli.servers,
             )
             .await
         }
@@ -145,6 +162,7 @@ async fn main() -> anyhow::Result<()> {
                 use_oauth,
                 &cli.user_url,
                 &cli.agent_url,
+                &cli.servers,
             )
             .await
         }
@@ -156,7 +174,7 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("Logged out. Tokens and session cleared.");
             Ok(())
         }
-        None => run_tui(cli.api_key, use_oauth, cli.user_url, cli.agent_url).await,
+        None => run_tui(cli.api_key, use_oauth, cli.user_url, cli.agent_url, cli.servers).await,
     }
 }
 
@@ -165,9 +183,12 @@ async fn run_tui(
     use_oauth: bool,
     user_url: String,
     agent_url: String,
+    servers: Vec<String>,
 ) -> anyhow::Result<()> {
     // --- Phase 1: Build credentials ---
-    let auth_manager = AuthManager::new(api_key, use_oauth, user_url.clone(), agent_url.clone());
+    let registry = mcp::types::ServerRegistry::from_specs(&user_url, &agent_url, &servers)
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let auth_manager = AuthManager::new(api_key, use_oauth, registry.clone());
 
     eprintln!("Authenticating...");
     let session = auth_manager
@@ -178,7 +199,7 @@ async fn run_tui(
     // --- Phase 2: Connect MCP servers + bootstrap identity ---
     let (action_tx, mut action_rx) = mpsc::unbounded_channel::<Action>();
 
-    let mut mcp_manager = McpManager::new(&session, &user_url, &agent_url)
+    let mut mcp_manager = McpManager::new(&session, &registry)
         .context("failed to create MCP manager")?;
 
     eprintln!("Connecting to MCP servers...");
@@ -187,18 +208,21 @@ async fn run_tui(
         .await
         .context("failed to connect MCP servers")?;
 
-    // Resolve identity on the already-connected User session
-    let identity = mcp_manager
-        .bootstrap_identity()
-        .await
-        .context("failed to bootstrap identity")?;
-    eprintln!("Authenticated as {}", identity.display_name);
-
-    // Update session with resolved identity
+    // Resolve identity on the connected identity-provider session (best-effort:
+    // in OAuth mode account_id is already known from the JWT, so a provider that
+    // is down/unauthorized must not abort startup).
     let mut session = session;
-    session.account_id = identity.account_id;
-    session.display_name = identity.display_name;
-    session.entity_type = identity.entity_type;
+    match mcp_manager.bootstrap_identity().await {
+        Ok(identity) => {
+            eprintln!("Authenticated as {}", identity.display_name);
+            session.account_id = identity.account_id;
+            session.display_name = identity.display_name;
+            session.entity_type = identity.entity_type;
+        }
+        Err(e) => {
+            warn!(error = %e, "identity bootstrap failed; continuing with token identity");
+        }
+    }
 
     // List tools from both servers
     let tools = mcp_manager
@@ -212,10 +236,10 @@ async fn run_tui(
 
     // --- Phase 3: Enter TUI ---
     let mut terminal = tui::init()?;
-    let mut app = App::new();
+    let mut app = App::new(&registry);
     app.update(Action::AuthSuccess(session));
-    app.update(Action::McpConnected(mcp::types::ServerIdentity::User));
-    app.update(Action::McpConnected(mcp::types::ServerIdentity::Agent));
+    // Per-server connection states (Connected / Error / Unauthorized) arrive via
+    // the action channel from connect_all() and are drained when the loop starts.
     app.set_tools(tools);
 
     let event_handler = EventHandler::new(action_tx.clone());
@@ -245,7 +269,7 @@ async fn run_tui(
                     } else {
                         // No form — build request directly from selected tool
                         app.selected_tool().map(|entry| ToolCallRequest {
-                            server: entry.server,
+                            server: entry.server.clone(),
                             tool_name: entry.tool.name.clone(),
                             arguments: serde_json::json!({}),
                         })
@@ -350,7 +374,7 @@ fn build_tool_call_request(app: &App) -> Option<ToolCallRequest> {
     let arguments = assemble_args(&form.fields);
 
     Some(ToolCallRequest {
-        server: tool_entry.server,
+        server: tool_entry.server.clone(),
         tool_name: form.tool_name.clone(),
         arguments,
     })
@@ -363,9 +387,8 @@ async fn dispatch_tool_call(
     tx: mpsc::UnboundedSender<Action>,
 ) {
     let tool_name = request.tool_name.clone();
-    let server = request.server;
 
-    info!(tool = %tool_name, server = %server, "Dispatching tool call");
+    info!(tool = %tool_name, server = %request.server, "Dispatching tool call");
 
     let manager = mcp.lock().await;
     match manager.call_tool(request).await {

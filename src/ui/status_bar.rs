@@ -5,7 +5,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::{App, ConnectionState, InputMode, PanelFocus};
-use crate::mcp::types::ServerIdentity;
+use crate::mcp::types::ServerId;
 
 /// Render the status bar (top row).
 pub fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
@@ -32,12 +32,13 @@ pub fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     spans.push(Span::styled(identity, identity_style));
     spans.push(Span::raw("  "));
 
-    // Server connection: [User:ok] [Agent:ok]
-    for server in &[ServerIdentity::User, ServerIdentity::Agent] {
-        let (label, color) = server_status_label(app, *server);
+    // Server connection: [User:ok] [Agent:ok] …
+    for server in &app.servers {
+        let (label, color) = server_status_label(app, server);
         spans.push(Span::raw("["));
+        // Compact: use the one/two-char prefix so 4+ servers fit on one line.
         spans.push(Span::styled(
-            server.label(),
+            server.prefix().to_string(),
             Style::default().fg(Color::White),
         ));
         spans.push(Span::raw(":"));
@@ -99,11 +100,12 @@ pub fn render_footer(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(bar, area);
 }
 
-fn server_status_label(app: &App, server: ServerIdentity) -> (&'static str, Color) {
-    match app.server_state.get(&server) {
+fn server_status_label(app: &App, server: &ServerId) -> (&'static str, Color) {
+    match app.server_state.get(server) {
         Some(ConnectionState::Connected) => ("ok", Color::Green),
         Some(ConnectionState::Connecting) => ("..", Color::Yellow),
         Some(ConnectionState::Error) => ("err", Color::Red),
+        Some(ConnectionState::Unauthorized) => ("no", Color::Magenta),
         _ => ("--", Color::Gray),
     }
 }

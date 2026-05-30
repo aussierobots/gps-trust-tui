@@ -6,6 +6,7 @@ pub mod token_store;
 use anyhow::{Context, Result};
 
 use crate::auth::session::AuthSession;
+use crate::mcp::types::ServerRegistry;
 
 /// Manages authentication strategy selection and execution.
 pub struct AuthManager {
@@ -13,24 +14,16 @@ pub struct AuthManager {
     api_key: Option<String>,
     /// Whether OAuth 2.1 is enabled (default: true).
     oauth: bool,
-    /// User MCP server URL.
-    user_url: String,
-    /// Agent MCP server URL.
-    agent_url: String,
+    /// The configured MCP servers (audiences to obtain credentials for).
+    registry: ServerRegistry,
 }
 
 impl AuthManager {
-    pub fn new(
-        api_key: Option<String>,
-        oauth: bool,
-        user_url: String,
-        agent_url: String,
-    ) -> Self {
+    pub fn new(api_key: Option<String>, oauth: bool, registry: ServerRegistry) -> Self {
         Self {
             api_key,
             oauth,
-            user_url,
-            agent_url,
+            registry,
         }
     }
 
@@ -42,11 +35,11 @@ impl AuthManager {
     /// - Neither → error
     pub async fn authenticate(&self) -> Result<AuthSession> {
         if let Some(ref key) = self.api_key {
-            return api_key::authenticate(key);
+            return api_key::authenticate(key, &self.registry);
         }
 
         if self.oauth {
-            return oauth::authenticate(&self.user_url, &self.agent_url)
+            return oauth::authenticate(&self.registry)
                 .await
                 .context("OAuth authentication failed");
         }

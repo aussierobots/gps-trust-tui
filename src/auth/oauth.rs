@@ -11,14 +11,14 @@ use tracing::{info, warn};
 
 use crate::auth::session::{AuthSession, ServerCredentials};
 use crate::auth::token_store::{StoredToken, TokenStore};
-use crate::mcp::types::ServerIdentity;
+use crate::mcp::types::ServerRegistry;
 
 pub const AUTH_BASE: &str = "https://auth.aussierobots.com.au";
 const REDIRECT_URI: &str = "http://127.0.0.1:19876/callback";
 const CALLBACK_ADDR: &str = "127.0.0.1:19876";
 
-/// Run the full OAuth 2.1 + PKCE flow for both MCP server audiences.
-pub async fn authenticate(user_url: &str, agent_url: &str) -> Result<AuthSession> {
+/// Run the full OAuth 2.1 + PKCE flow for every configured MCP server audience.
+pub async fn authenticate(registry: &ServerRegistry) -> Result<AuthSession> {
     let http = reqwest::Client::new();
     let mut store = TokenStore::load();
 
@@ -37,18 +37,14 @@ pub async fn authenticate(user_url: &str, agent_url: &str) -> Result<AuthSession
         }
     };
 
-    // Step 2: Obtain tokens for each audience
-    let audiences = [
-        (ServerIdentity::User, user_url),
-        (ServerIdentity::Agent, agent_url),
-    ];
-
+    // Step 2: Obtain a token for each configured server's audience
     let mut credentials = HashMap::new();
     let mut account_id = String::new();
 
-    for (server, audience) in &audiences {
+    for server in registry.iter() {
+        let audience = server.url();
         // Try refresh first if we have a stored token
-        if let Some(stored) = store.tokens.get(*audience) {
+        if let Some(stored) = store.tokens.get(audience) {
             match refresh_token(&http, &client_id, &stored.refresh_token).await {
                 Ok(token_resp) => {
                     info!(audience = %audience, "Refreshed token successfully");
@@ -56,7 +52,7 @@ pub async fn authenticate(user_url: &str, agent_url: &str) -> Result<AuthSession
                     account_id = stored.account_id.clone();
 
                     credentials.insert(
-                        *server,
+                        server.clone(),
                         ServerCredentials::OAuth {
                             access_token: token_resp.access_token.clone(),
                             refresh_token: token_resp
@@ -87,8 +83,17 @@ pub async fn authenticate(user_url: &str, agent_url: &str) -> Result<AuthSession
             }
         }
 
-        // Full authorization flow
-        let token_resp = authorize(&http, &client_id, audience).await?;
+        // Full authorization flow. Fail-soft: if the auth server declines this
+        // audience for the entity (e.g. invalid_request / access_denied), skip
+        // the server rather than aborting login for all servers. With no
+        // credential, McpManager surfaces it as Unauthorized.
+        let token_resp = match authorize(&http, &client_id, audience, server.scope()).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                warn!(audience = %audience, error = %e, "authorization declined — skipping server");
+                continue;
+            }
+        };
         let expires_at = chrono_now() + token_resp.expires_in;
 
         // Extract account_id from JWT sub claim
@@ -98,7 +103,7 @@ pub async fn authenticate(user_url: &str, agent_url: &str) -> Result<AuthSession
         }
 
         credentials.insert(
-            *server,
+            server.clone(),
             ServerCredentials::OAuth {
                 access_token: token_resp.access_token.clone(),
                 refresh_token: token_resp
@@ -165,27 +170,18 @@ async fn register_client(http: &reqwest::Client) -> Result<String> {
         .context("DCR response missing client_id")
 }
 
-/// Run the authorization code + PKCE flow for a single audience.
-/// Resolve the scopes to request for a given audience, matching the auth
-/// server's `DCR_AUDIENCE_SCOPE_POLICY`.
-fn scopes_for_audience(audience: &str) -> &'static str {
-    if audience.contains("agent.aussierobots.com.au")
-        || audience.contains("pf.aussierobots.com.au")
-    {
-        "mcp:read mcp:write"
-    } else {
-        "mcp:read"
-    }
-}
-
+/// Run the authorization code + PKCE flow for a single audience. The scope is
+/// supplied by the caller from the server's `ServerConfig` (the single source
+/// of truth, kept in lockstep with the auth server's `DCR_AUDIENCE_SCOPE_POLICY`).
 async fn authorize(
     http: &reqwest::Client,
     client_id: &str,
     audience: &str,
+    scope: &str,
 ) -> Result<TokenResponse> {
     let (verifier, challenge) = generate_pkce();
     let state = generate_state();
-    let scope = urlencoded(scopes_for_audience(audience));
+    let scope = urlencoded(scope);
 
     // Build authorization URL
     let auth_url = format!(

@@ -6,14 +6,10 @@ use tracing::{debug, warn};
 use turul_mcp_protocol::ProgressNotificationParams;
 
 use crate::action::Action;
-use crate::mcp::types::ServerIdentity;
+use crate::mcp::types::ServerId;
 
 /// Parse a notification JSON value and dispatch the appropriate Action.
-pub fn dispatch_notification(
-    server: ServerIdentity,
-    value: &Value,
-    tx: &UnboundedSender<Action>,
-) {
+pub fn dispatch_notification(server: &ServerId, value: &Value, tx: &UnboundedSender<Action>) {
     let method = match value.get("method").and_then(|m| m.as_str()) {
         Some(m) => m,
         None => {
@@ -25,7 +21,7 @@ pub fn dispatch_notification(
     match method {
         "notifications/tools/list_changed" => {
             debug!(server = %server, "tools list changed notification");
-            let _ = tx.send(Action::McpToolsRefreshed(server));
+            let _ = tx.send(Action::McpToolsRefreshed(server.clone()));
         }
         "notifications/progress" => {
             if let Some(params_val) = value.get("params") {
@@ -36,7 +32,7 @@ pub fn dispatch_notification(
                             turul_mcp_protocol::ProgressTokenValue::Number(n) => n.to_string(),
                         };
                         let _ = tx.send(Action::McpProgress {
-                            server,
+                            server: server.clone(),
                             progress_token: token,
                             progress: params.progress,
                             total: params.total,
@@ -61,7 +57,7 @@ pub fn dispatch_notification(
 /// the de-duplicated batch.
 #[allow(dead_code)]
 pub struct NotificationCoalescer {
-    buffer: HashMap<(ServerIdentity, String), Action>,
+    buffer: HashMap<(String, String), Action>,
 }
 
 #[allow(dead_code)]
@@ -72,7 +68,7 @@ impl NotificationCoalescer {
         }
     }
 
-    /// Buffer a progress action. Non-progress actions are stored with an empty token key.
+    /// Buffer a progress action. Non-progress actions are stored with a unique key.
     pub fn push(&mut self, action: Action) {
         match &action {
             Action::McpProgress {
@@ -81,11 +77,14 @@ impl NotificationCoalescer {
                 ..
             } => {
                 self.buffer
-                    .insert((*server, progress_token.clone()), action);
+                    .insert((server.key().to_string(), progress_token.clone()), action);
             }
             _ => {
                 // Non-progress actions pass through immediately via a unique key
-                let key = (ServerIdentity::User, format!("__other_{}", self.buffer.len()));
+                let key = (
+                    "__other".to_string(),
+                    format!("__other_{}", self.buffer.len()),
+                );
                 self.buffer.insert(key, action);
             }
         }

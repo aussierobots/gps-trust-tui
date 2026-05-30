@@ -32,7 +32,7 @@ src/
     session.rs         — AuthSession: per-server credentials, headers_for()
     token_store.rs     — ~/.config/gps-trust/tokens.json persistence (0600)
   mcp/
-    mod.rs             — McpManager: dual-client lifecycle, managed field injection
+    mod.rs             — McpManager: multi-server registry lifecycle, managed field injection
     client.rs          — Single-server wrapper: paginated list, call_tool
     types.rs           — ServerIdentity, ToolEntry, ManagedFieldsPolicy
     notifications.rs   — Progress + list_changed dispatch, coalescer
@@ -70,8 +70,22 @@ src/
 
 ## Servers
 
-- User MCP: `https://gt.aussierobots.com.au/mcp` (26 tools)
+Default fleet (always connected):
+
+- User MCP: `https://gt.aussierobots.com.au/mcp` (25 tools) — identity provider
 - Agent MCP: `https://agent.aussierobots.com.au/mcp` (25 tools)
+
+Opt-in via `--server <key>` (catalog default URL) or `--server key=url`:
+
+- `pf` — Particle Filter: `https://pf.aussierobots.com.au/mcp`
+- `sv-track` — SV Track: `https://st.aussierobots.com.au/mcp`
+- `space-data` — Space Data KB: `https://sd.aussierobots.com.au/mcp`
+
+Per-MCP access is gated server-side: each entity may only mint tokens for its
+entitled audiences (`mcpAudiences` allowlist, gps-trust-auth ADR-0005). A
+non-entitled audience is denied at issuance and shows as `Unauthorized` —
+gttui never bypasses it. See `docs/adr/0001-multi-server-mcp-client-architecture.md`.
+
 - Auth: `https://auth.aussierobots.com.au` (OAuth 2.1 + PKCE)
 
 ## Related Repos

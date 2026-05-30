@@ -4,7 +4,7 @@ use ratatui::widgets::ListState;
 
 use crate::action::Action;
 use crate::auth::session::AuthSession;
-use crate::mcp::types::{ActiveTask, ServerCaps, ServerIdentity, ToolEntry};
+use crate::mcp::types::{ActiveTask, ServerCaps, ServerId, ServerRegistry, ToolEntry};
 use crate::ui::result_view::ResultState;
 use crate::ui::tool_form::FormState;
 
@@ -14,6 +14,8 @@ pub enum ConnectionState {
     Connecting,
     Connected,
     Error,
+    /// No usable credential for this server (auth server declined the audience).
+    Unauthorized,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,9 +39,11 @@ pub struct App {
     pub should_quit: bool,
     pub input_mode: InputMode,
     pub auth_session: Option<AuthSession>,
-    pub server_state: HashMap<ServerIdentity, ConnectionState>,
+    pub server_state: HashMap<ServerId, ConnectionState>,
     #[allow(dead_code)]
-    pub server_caps: HashMap<ServerIdentity, ServerCaps>,
+    pub server_caps: HashMap<ServerId, ServerCaps>,
+    /// Ordered list of configured servers (drives status-bar rendering order).
+    pub servers: Vec<ServerId>,
 
     // Tool browser state
     pub tools: Vec<ToolEntry>,
@@ -68,10 +72,12 @@ pub struct App {
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(registry: &ServerRegistry) -> Self {
+        let servers: Vec<ServerId> = registry.iter().cloned().collect();
         let mut server_state = HashMap::new();
-        server_state.insert(ServerIdentity::User, ConnectionState::Disconnected);
-        server_state.insert(ServerIdentity::Agent, ConnectionState::Disconnected);
+        for server in &servers {
+            server_state.insert(server.clone(), ConnectionState::Disconnected);
+        }
 
         Self {
             should_quit: false,
@@ -79,6 +85,7 @@ impl App {
             auth_session: None,
             server_state,
             server_caps: HashMap::new(),
+            servers,
             tools: Vec::new(),
             tool_list_state: ListState::default(),
             filter_text: String::new(),
@@ -119,6 +126,10 @@ impl App {
             }
             Action::McpError(server, _msg) => {
                 self.server_state.insert(server, ConnectionState::Error);
+            }
+            Action::McpUnauthorized(server) => {
+                self.server_state
+                    .insert(server, ConnectionState::Unauthorized);
             }
             Action::McpToolsRefreshed(_server) => {
                 // Tools are set externally via set_tools(); this is a signal only.
