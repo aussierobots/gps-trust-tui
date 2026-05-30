@@ -22,19 +22,30 @@ pub async fn authenticate(registry: &ServerRegistry) -> Result<AuthSession> {
     let http = reqwest::Client::new();
     let mut store = TokenStore::load();
 
-    // Step 1: Dynamic Client Registration (or reuse cached client_id)
-    let client_id = match &store.dcr_client_id {
-        Some(id) => {
-            info!("Reusing cached DCR client_id");
-            id.clone()
-        }
-        None => {
+    // Step 1: reuse a cached DCR client_id only if it is still known to the
+    // auth server. DCR clients are ephemeral (a redeploy drops them), so a
+    // blindly-reused stale id fails with `invalid_client` in the browser and
+    // leaves the callback listener hanging. A cheap preflight catches that and
+    // re-registers instead. Any registered audience works for the probe.
+    let probe_resource = registry.iter().next().map(|s| s.url().to_string());
+    let cached = store.dcr_client_id.clone();
+    let reuse = match (&cached, &probe_resource) {
+        (Some(id), Some(resource)) => client_id_still_valid(id, resource).await,
+        _ => false,
+    };
+    let client_id = if reuse {
+        info!("Reusing cached DCR client_id");
+        cached.expect("reuse implies a cached client_id")
+    } else {
+        if cached.is_some() {
+            warn!("Cached DCR client_id is no longer valid — re-registering");
+        } else {
             info!("Performing dynamic client registration");
-            let id = register_client(&http).await?;
-            store.dcr_client_id = Some(id.clone());
-            store.save().context("failed to save DCR client_id")?;
-            id
         }
+        let id = register_client(&http).await?;
+        store.dcr_client_id = Some(id.clone());
+        store.save().context("failed to save DCR client_id")?;
+        id
     };
 
     // Step 2: Obtain a token for each configured server's audience
@@ -168,6 +179,51 @@ async fn register_client(http: &reqwest::Client) -> Result<String> {
         .as_str()
         .map(|s| s.to_string())
         .context("DCR response missing client_id")
+}
+
+/// Cheap preflight: is this cached DCR `client_id` still known to the auth
+/// server? A known client redirects (3xx) to the login page; an unknown one
+/// returns an `invalid_client` body. Returns false on `invalid_client` or any
+/// error — re-registering is far cheaper than hanging at the browser step.
+async fn client_id_still_valid(client_id: &str, resource: &str) -> bool {
+    let client = match reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let url = format!(
+        "{AUTH_BASE}/authorize?response_type=code\
+         &client_id={client_id}\
+         &redirect_uri={redirect}\
+         &code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM\
+         &code_challenge_method=S256\
+         &scope=mcp%3Aread\
+         &state=preflight\
+         &resource={resource}",
+        client_id = urlencoded(client_id),
+        redirect = urlencoded(REDIRECT_URI),
+        resource = urlencoded(resource),
+    );
+
+    match client.get(&url).send().await {
+        Ok(resp) => {
+            let is_redirect = resp.status().is_redirection();
+            let body = resp.text().await.unwrap_or_default();
+            preflight_indicates_valid(is_redirect, &body)
+        }
+        Err(e) => {
+            warn!(error = %e, "DCR client_id preflight failed — re-registering");
+            false
+        }
+    }
+}
+
+/// Interpret a preflight `/authorize` response: a known client redirects to
+/// login; an unknown one returns an `invalid_client` error body.
+fn preflight_indicates_valid(is_redirect: bool, body: &str) -> bool {
+    is_redirect || !body.contains("invalid_client")
 }
 
 /// Run the authorization code + PKCE flow for a single audience. The scope is
@@ -421,4 +477,30 @@ struct TokenResponse {
     access_token: String,
     refresh_token: Option<String>,
     expires_in: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preflight_redirect_means_valid() {
+        // A known client_id redirects (303) to /login.
+        assert!(preflight_indicates_valid(true, ""));
+    }
+
+    #[test]
+    fn preflight_invalid_client_body_means_stale() {
+        assert!(!preflight_indicates_valid(
+            false,
+            r#"{"error":"invalid_client","error_description":"unknown client_id"}"#
+        ));
+    }
+
+    #[test]
+    fn preflight_other_non_redirect_response_is_treated_valid() {
+        // Some other 4xx (e.g. resource/scope quibble) is not a dead client —
+        // proceed and let the real flow surface it.
+        assert!(preflight_indicates_valid(false, "<html>login</html>"));
+    }
 }
