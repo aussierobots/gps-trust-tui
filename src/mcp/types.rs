@@ -69,23 +69,36 @@ impl ServerId {
     }
 }
 
+/// Catalog of known servers: (key, label, prefix, default_url, is_identity_provider).
+/// Single source of truth for the fleet — `--server <key>` resolves a default
+/// URL here, and display metadata is looked up from it.
+const KNOWN_SERVERS: &[(&str, &str, &str, &str, bool)] = &[
+    ("user", "User", "U", "https://gt.aussierobots.com.au/mcp", true),
+    ("agent", "Agent", "A", "https://agent.aussierobots.com.au/mcp", false),
+    ("pf", "Particle Filter", "P", "https://pf.aussierobots.com.au/mcp", false),
+    ("sv-track", "SV Track", "T", "https://st.aussierobots.com.au/mcp", false),
+    ("space-data", "Space Data", "D", "https://sd.aussierobots.com.au/mcp", false),
+];
+
 /// Display metadata + identity role for known server keys; derived otherwise.
 fn known_server_meta(key: &str) -> (String, String, bool) {
-    match key {
-        "user" => ("User".to_string(), "U".to_string(), true),
-        "agent" => ("Agent".to_string(), "A".to_string(), false),
-        "pf" => ("Particle".to_string(), "P".to_string(), false),
-        "sv-track" | "st" => ("SV Track".to_string(), "T".to_string(), false),
-        "space-data" | "sd" => ("Space Data".to_string(), "D".to_string(), false),
-        other => {
-            let prefix = other
-                .chars()
-                .next()
-                .map(|c| c.to_ascii_uppercase().to_string())
-                .unwrap_or_else(|| "?".to_string());
-            (other.to_string(), prefix, false)
-        }
+    if let Some((_, label, prefix, _, idp)) = KNOWN_SERVERS.iter().find(|(k, ..)| *k == key) {
+        return (label.to_string(), prefix.to_string(), *idp);
     }
+    let prefix = key
+        .chars()
+        .next()
+        .map(|c| c.to_ascii_uppercase().to_string())
+        .unwrap_or_else(|| "?".to_string());
+    (key.to_string(), prefix, false)
+}
+
+/// Default endpoint URL for a known server key, if any.
+fn known_default_url(key: &str) -> Option<&'static str> {
+    KNOWN_SERVERS
+        .iter()
+        .find(|(k, ..)| *k == key)
+        .map(|(_, _, _, url, _)| *url)
 }
 
 impl PartialEq for ServerId {
@@ -130,13 +143,31 @@ impl ServerRegistry {
             ServerId::from_key_url("agent", agent_url),
         ];
         for spec in extra {
-            let (key, url) = spec
-                .split_once('=')
-                .ok_or_else(|| format!("--server must be KEY=URL, got '{spec}'"))?;
-            if key.is_empty() || url.is_empty() {
-                return Err(format!("--server KEY and URL must both be non-empty: '{spec}'"));
+            let (key, url) = match spec.split_once('=') {
+                Some((k, u)) => {
+                    if k.is_empty() || u.is_empty() {
+                        return Err(format!(
+                            "--server KEY and URL must both be non-empty: '{spec}'"
+                        ));
+                    }
+                    (k.to_string(), u.to_string())
+                }
+                None => {
+                    // Bare key (e.g. `--server sv-track`) → known default URL.
+                    let url = known_default_url(spec).ok_or_else(|| {
+                        format!("--server '{spec}' has no known default URL; use KEY=URL")
+                    })?;
+                    (spec.clone(), url.to_string())
+                }
+            };
+            let id = ServerId::from_key_url(&key, &url);
+            // Override an existing server by key (e.g. a custom --server user=…),
+            // otherwise append.
+            if let Some(existing) = servers.iter_mut().find(|s| s.key() == key) {
+                *existing = id;
+            } else {
+                servers.push(id);
             }
-            servers.push(ServerId::from_key_url(key, url));
         }
         Ok(Self::new(servers))
     }
@@ -305,8 +336,29 @@ mod tests {
 
     #[test]
     fn from_specs_rejects_malformed_spec() {
+        // Bare unknown key (no '=' and no catalog default) is rejected.
         assert!(ServerRegistry::from_specs("u", "a", &["noequals".to_string()]).is_err());
         assert!(ServerRegistry::from_specs("u", "a", &["=onlyurl".to_string()]).is_err());
         assert!(ServerRegistry::from_specs("u", "a", &["key=".to_string()]).is_err());
+    }
+
+    #[test]
+    fn from_specs_resolves_bare_known_key_to_default_url() {
+        let reg = ServerRegistry::from_specs("u", "a", &["sv-track".to_string()]).unwrap();
+        let ids: Vec<&ServerId> = reg.iter().collect();
+        assert_eq!(ids.len(), 3);
+        assert_eq!(ids[2].key(), "sv-track");
+        assert_eq!(ids[2].url(), "https://st.aussierobots.com.au/mcp");
+        assert_eq!(ids[2].label(), "SV Track");
+    }
+
+    #[test]
+    fn from_specs_overrides_existing_server_by_key() {
+        let reg =
+            ServerRegistry::from_specs("u", "a", &["user=https://custom/mcp".to_string()]).unwrap();
+        let ids: Vec<&ServerId> = reg.iter().collect();
+        assert_eq!(ids.len(), 2); // user replaced in place, not appended
+        assert_eq!(ids[0].key(), "user");
+        assert_eq!(ids[0].url(), "https://custom/mcp");
     }
 }
