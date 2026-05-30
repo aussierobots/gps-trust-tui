@@ -97,7 +97,7 @@ fn json_to_toml(value: &serde_json::Value) -> toml::Value {
     }
 }
 
-use crate::mcp::types::ToolEntry;
+use crate::mcp::types::{ServerRegistry, ToolEntry};
 
 // ---------------------------------------------------------------------------
 // Shared connect helper
@@ -110,14 +110,15 @@ async fn connect_and_list(
     user_url: &str,
     agent_url: &str,
 ) -> Result<(McpManager, Vec<ToolEntry>)> {
-    let auth_manager = AuthManager::new(api_key, oauth, user_url.to_string(), agent_url.to_string());
+    let registry = ServerRegistry::user_agent(user_url, agent_url);
+    let auth_manager = AuthManager::new(api_key, oauth, registry.clone());
     let session = auth_manager
         .authenticate()
         .await
         .context("authentication failed")?;
 
     let (action_tx, _action_rx) = mpsc::unbounded_channel::<Action>();
-    let mut mcp_manager = McpManager::new(&session, user_url, agent_url)
+    let mut mcp_manager = McpManager::new(&session, &registry)
         .context("failed to create MCP manager")?;
     mcp_manager
         .connect_all(action_tx)
@@ -172,7 +173,7 @@ pub async fn run_call(
     info!(tool = %tool_name, server = %tool_entry.server, "Calling tool");
 
     let request = ToolCallRequest {
-        server: tool_entry.server,
+        server: tool_entry.server.clone(),
         tool_name: tool_name.to_string(),
         arguments,
     };

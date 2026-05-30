@@ -32,7 +32,7 @@ src/
     session.rs         — AuthSession: per-server credentials, headers_for()
     token_store.rs     — ~/.config/gps-trust/tokens.json persistence (0600)
   mcp/
-    mod.rs             — McpManager: dual-client lifecycle, managed field injection
+    mod.rs             — McpManager: multi-server registry lifecycle, managed field injection
     client.rs          — Single-server wrapper: paginated list, call_tool
     types.rs           — ServerIdentity, ToolEntry, ManagedFieldsPolicy
     notifications.rs   — Progress + list_changed dispatch, coalescer
@@ -70,7 +70,7 @@ src/
 
 ## Servers
 
-- User MCP: `https://gt.aussierobots.com.au/mcp` (26 tools)
+- User MCP: `https://gt.aussierobots.com.au/mcp` (25 tools)
 - Agent MCP: `https://agent.aussierobots.com.au/mcp` (25 tools)
 - Auth: `https://auth.aussierobots.com.au` (OAuth 2.1 + PKCE)
 

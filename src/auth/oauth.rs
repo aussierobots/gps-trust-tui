@@ -11,14 +11,14 @@ use tracing::{info, warn};
 
 use crate::auth::session::{AuthSession, ServerCredentials};
 use crate::auth::token_store::{StoredToken, TokenStore};
-use crate::mcp::types::ServerIdentity;
+use crate::mcp::types::ServerRegistry;
 
 pub const AUTH_BASE: &str = "https://auth.aussierobots.com.au";
 const REDIRECT_URI: &str = "http://127.0.0.1:19876/callback";
 const CALLBACK_ADDR: &str = "127.0.0.1:19876";
 
-/// Run the full OAuth 2.1 + PKCE flow for both MCP server audiences.
-pub async fn authenticate(user_url: &str, agent_url: &str) -> Result<AuthSession> {
+/// Run the full OAuth 2.1 + PKCE flow for every configured MCP server audience.
+pub async fn authenticate(registry: &ServerRegistry) -> Result<AuthSession> {
     let http = reqwest::Client::new();
     let mut store = TokenStore::load();
 
@@ -37,18 +37,14 @@ pub async fn authenticate(user_url: &str, agent_url: &str) -> Result<AuthSession
         }
     };
 
-    // Step 2: Obtain tokens for each audience
-    let audiences = [
-        (ServerIdentity::User, user_url),
-        (ServerIdentity::Agent, agent_url),
-    ];
-
+    // Step 2: Obtain a token for each configured server's audience
     let mut credentials = HashMap::new();
     let mut account_id = String::new();
 
-    for (server, audience) in &audiences {
+    for server in registry.iter() {
+        let audience = server.url();
         // Try refresh first if we have a stored token
-        if let Some(stored) = store.tokens.get(*audience) {
+        if let Some(stored) = store.tokens.get(audience) {
             match refresh_token(&http, &client_id, &stored.refresh_token).await {
                 Ok(token_resp) => {
                     info!(audience = %audience, "Refreshed token successfully");
@@ -56,7 +52,7 @@ pub async fn authenticate(user_url: &str, agent_url: &str) -> Result<AuthSession
                     account_id = stored.account_id.clone();
 
                     credentials.insert(
-                        *server,
+                        server.clone(),
                         ServerCredentials::OAuth {
                             access_token: token_resp.access_token.clone(),
                             refresh_token: token_resp
@@ -98,7 +94,7 @@ pub async fn authenticate(user_url: &str, agent_url: &str) -> Result<AuthSession
         }
 
         credentials.insert(
-            *server,
+            server.clone(),
             ServerCredentials::OAuth {
                 access_token: token_resp.access_token.clone(),
                 refresh_token: token_resp

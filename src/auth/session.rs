@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::mcp::types::ServerIdentity;
+use crate::mcp::types::ServerId;
 
 #[derive(Debug, Clone)]
 pub enum ServerCredentials {
@@ -24,12 +24,12 @@ pub struct AuthSession {
     pub display_name: String,
     #[allow(dead_code)]
     pub entity_type: String,
-    pub credentials: HashMap<ServerIdentity, ServerCredentials>,
+    pub credentials: HashMap<ServerId, ServerCredentials>,
 }
 
 impl AuthSession {
     /// Build HTTP headers for a specific server's MCP client transport.
-    pub fn headers_for(&self, server: &ServerIdentity) -> HashMap<String, String> {
+    pub fn headers_for(&self, server: &ServerId) -> HashMap<String, String> {
         let mut headers = HashMap::new();
         if let Some(creds) = self.credentials.get(server) {
             match creds {

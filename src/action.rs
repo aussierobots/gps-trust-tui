@@ -1,4 +1,4 @@
-use crate::mcp::types::ServerIdentity;
+use crate::mcp::types::ServerId;
 
 #[derive(Debug, Clone)]
 pub enum Action {
@@ -8,15 +8,15 @@ pub enum Action {
     AuthSuccess(crate::auth::session::AuthSession),
 
     // MCP lifecycle
-    McpConnecting(ServerIdentity),
-    McpConnected(ServerIdentity),
-    McpDisconnected(ServerIdentity),
+    McpConnecting(ServerId),
+    McpConnected(ServerId),
+    McpDisconnected(ServerId),
     #[allow(dead_code)]
-    McpError(ServerIdentity, String),
-    McpToolsRefreshed(ServerIdentity),
+    McpError(ServerId, String),
+    McpToolsRefreshed(ServerId),
     McpProgress {
         #[allow(dead_code)]
-        server: ServerIdentity,
+        server: ServerId,
         #[allow(dead_code)]
         progress_token: String,
         progress: f64,

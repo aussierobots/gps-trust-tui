@@ -167,7 +167,8 @@ async fn run_tui(
     agent_url: String,
 ) -> anyhow::Result<()> {
     // --- Phase 1: Build credentials ---
-    let auth_manager = AuthManager::new(api_key, use_oauth, user_url.clone(), agent_url.clone());
+    let registry = mcp::types::ServerRegistry::user_agent(&user_url, &agent_url);
+    let auth_manager = AuthManager::new(api_key, use_oauth, registry.clone());
 
     eprintln!("Authenticating...");
     let session = auth_manager
@@ -178,7 +179,7 @@ async fn run_tui(
     // --- Phase 2: Connect MCP servers + bootstrap identity ---
     let (action_tx, mut action_rx) = mpsc::unbounded_channel::<Action>();
 
-    let mut mcp_manager = McpManager::new(&session, &user_url, &agent_url)
+    let mut mcp_manager = McpManager::new(&session, &registry)
         .context("failed to create MCP manager")?;
 
     eprintln!("Connecting to MCP servers...");
@@ -212,10 +213,11 @@ async fn run_tui(
 
     // --- Phase 3: Enter TUI ---
     let mut terminal = tui::init()?;
-    let mut app = App::new();
+    let mut app = App::new(&registry);
     app.update(Action::AuthSuccess(session));
-    app.update(Action::McpConnected(mcp::types::ServerIdentity::User));
-    app.update(Action::McpConnected(mcp::types::ServerIdentity::Agent));
+    for server in registry.iter() {
+        app.update(Action::McpConnected(server.clone()));
+    }
     app.set_tools(tools);
 
     let event_handler = EventHandler::new(action_tx.clone());
@@ -245,7 +247,7 @@ async fn run_tui(
                     } else {
                         // No form — build request directly from selected tool
                         app.selected_tool().map(|entry| ToolCallRequest {
-                            server: entry.server,
+                            server: entry.server.clone(),
                             tool_name: entry.tool.name.clone(),
                             arguments: serde_json::json!({}),
                         })
@@ -350,7 +352,7 @@ fn build_tool_call_request(app: &App) -> Option<ToolCallRequest> {
     let arguments = assemble_args(&form.fields);
 
     Some(ToolCallRequest {
-        server: tool_entry.server,
+        server: tool_entry.server.clone(),
         tool_name: form.tool_name.clone(),
         arguments,
     })
@@ -363,9 +365,8 @@ async fn dispatch_tool_call(
     tx: mpsc::UnboundedSender<Action>,
 ) {
     let tool_name = request.tool_name.clone();
-    let server = request.server;
 
-    info!(tool = %tool_name, server = %server, "Dispatching tool call");
+    info!(tool = %tool_name, server = %request.server, "Dispatching tool call");
 
     let manager = mcp.lock().await;
     match manager.call_tool(request).await {

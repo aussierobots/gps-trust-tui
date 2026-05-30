@@ -10,11 +10,11 @@ use turul_mcp_protocol::{CallToolResult, Task, Tool};
 
 use crate::action::Action;
 use crate::mcp::notifications::dispatch_notification;
-use crate::mcp::types::{ServerCaps, ServerIdentity};
+use crate::mcp::types::{ServerCaps, ServerId};
 
 /// Single-server MCP client wrapper.
 pub struct McpServerClient {
-    identity: ServerIdentity,
+    identity: ServerId,
     client: McpClient,
     caps: ServerCaps,
 }
@@ -22,7 +22,7 @@ pub struct McpServerClient {
 impl McpServerClient {
     /// Build an MCP client for the given server with auth headers.
     pub fn new(
-        identity: ServerIdentity,
+        identity: ServerId,
         url: &str,
         headers: HashMap<String, String>,
     ) -> Result<Self> {
@@ -87,8 +87,8 @@ impl McpServerClient {
 
     /// Server identity.
     #[allow(dead_code)]
-    pub fn identity(&self) -> ServerIdentity {
-        self.identity
+    pub fn identity(&self) -> ServerId {
+        self.identity.clone()
     }
 
     /// List all tools using exhaustive pagination.
@@ -167,24 +167,25 @@ impl McpServerClient {
     /// Register notification and connection-lost callbacks that forward to the action channel.
     pub async fn setup_notifications(&self, tx: UnboundedSender<Action>) {
         let handler = self.client.stream_handler().await;
-        let identity = self.identity;
 
+        let notif_identity = self.identity.clone();
         let notif_tx = tx.clone();
         handler.on_notification(move |value: Value| {
-            dispatch_notification(identity, &value, &notif_tx);
+            dispatch_notification(&notif_identity, &value, &notif_tx);
         });
 
+        let lost_identity = self.identity.clone();
         let lost_tx = tx.clone();
         handler.on_connection_lost(move || {
-            let _ = lost_tx.send(Action::McpDisconnected(identity));
+            let _ = lost_tx.send(Action::McpDisconnected(lost_identity.clone()));
         });
 
-        let _err_tx = tx;
+        let err_identity = self.identity.clone();
         handler.on_error(move |msg: String| {
             // Log but don't set connection state to Error — stream errors are
             // expected on HTTP transport (no persistent event stream).
             // Connection state is only meaningful for SSE transports.
-            warn!(server = %identity, error = %msg, "MCP stream error (non-fatal)");
+            warn!(server = %err_identity, error = %msg, "MCP stream error (non-fatal)");
         });
     }
 }
