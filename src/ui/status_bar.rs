@@ -36,8 +36,9 @@ pub fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     for server in &app.servers {
         let (label, color) = server_status_label(app, server);
         spans.push(Span::raw("["));
+        // Compact: use the one/two-char prefix so 4+ servers fit on one line.
         spans.push(Span::styled(
-            server.label().to_string(),
+            server.prefix().to_string(),
             Style::default().fg(Color::White),
         ));
         spans.push(Span::raw(":"));

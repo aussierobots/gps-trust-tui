@@ -53,6 +53,39 @@ impl ServerId {
     pub fn is_identity_provider(&self) -> bool {
         self.0.is_identity_provider
     }
+
+    /// Build a handle from a key + URL, filling display metadata (and the
+    /// identity-provider role) from the known-server catalog, or deriving it
+    /// for unknown keys.
+    pub fn from_key_url(key: &str, url: &str) -> Self {
+        let (label, prefix, is_identity_provider) = known_server_meta(key);
+        ServerId::new(ServerConfig {
+            key: key.to_string(),
+            label,
+            prefix,
+            url: url.to_string(),
+            is_identity_provider,
+        })
+    }
+}
+
+/// Display metadata + identity role for known server keys; derived otherwise.
+fn known_server_meta(key: &str) -> (String, String, bool) {
+    match key {
+        "user" => ("User".to_string(), "U".to_string(), true),
+        "agent" => ("Agent".to_string(), "A".to_string(), false),
+        "pf" => ("Particle".to_string(), "P".to_string(), false),
+        "sv-track" | "st" => ("SV Track".to_string(), "T".to_string(), false),
+        "space-data" | "sd" => ("Space Data".to_string(), "D".to_string(), false),
+        other => {
+            let prefix = other
+                .chars()
+                .next()
+                .map(|c| c.to_ascii_uppercase().to_string())
+                .unwrap_or_else(|| "?".to_string());
+            (other.to_string(), prefix, false)
+        }
+    }
 }
 
 impl PartialEq for ServerId {
@@ -83,26 +116,29 @@ pub struct ServerRegistry {
 }
 
 impl ServerRegistry {
-    /// The current default fleet: User + Agent.
-    pub fn user_agent(user_url: &str, agent_url: &str) -> Self {
-        Self {
-            servers: vec![
-                ServerId::new(ServerConfig {
-                    key: "user".to_string(),
-                    label: "User".to_string(),
-                    prefix: "U".to_string(),
-                    url: user_url.to_string(),
-                    is_identity_provider: true,
-                }),
-                ServerId::new(ServerConfig {
-                    key: "agent".to_string(),
-                    label: "Agent".to_string(),
-                    prefix: "A".to_string(),
-                    url: agent_url.to_string(),
-                    is_identity_provider: false,
-                }),
-            ],
+    /// Build a registry from an explicit ordered list of servers.
+    pub fn new(servers: Vec<ServerId>) -> Self {
+        Self { servers }
+    }
+
+    /// Build the default User + Agent fleet plus any additional servers given
+    /// as `KEY=URL` specs (the `--server` flag / config). The single place
+    /// "add a server" becomes a data operation rather than code.
+    pub fn from_specs(user_url: &str, agent_url: &str, extra: &[String]) -> Result<Self, String> {
+        let mut servers = vec![
+            ServerId::from_key_url("user", user_url),
+            ServerId::from_key_url("agent", agent_url),
+        ];
+        for spec in extra {
+            let (key, url) = spec
+                .split_once('=')
+                .ok_or_else(|| format!("--server must be KEY=URL, got '{spec}'"))?;
+            if key.is_empty() || url.is_empty() {
+                return Err(format!("--server KEY and URL must both be non-empty: '{spec}'"));
+            }
+            servers.push(ServerId::from_key_url(key, url));
         }
+        Ok(Self::new(servers))
     }
 
     pub fn iter(&self) -> std::slice::Iter<'_, ServerId> {
@@ -220,7 +256,7 @@ mod tests {
 
     #[test]
     fn user_agent_registry_has_user_then_agent() {
-        let reg = ServerRegistry::user_agent("https://u/mcp", "https://a/mcp");
+        let reg = ServerRegistry::from_specs("https://u/mcp", "https://a/mcp", &[]).unwrap();
         let ids: Vec<&ServerId> = reg.iter().collect();
         assert_eq!(ids.len(), 2);
         assert_eq!(ids[0].key(), "user");
@@ -231,7 +267,7 @@ mod tests {
 
     #[test]
     fn identity_provider_is_user() {
-        let reg = ServerRegistry::user_agent("https://u/mcp", "https://a/mcp");
+        let reg = ServerRegistry::from_specs("https://u/mcp", "https://a/mcp", &[]).unwrap();
         let provider = reg.identity_provider().expect("registry has an identity provider");
         assert_eq!(provider.key(), "user");
         assert!(provider.is_identity_provider());
@@ -248,5 +284,29 @@ mod tests {
         let mut m = HashMap::new();
         m.insert(a.clone(), 42);
         assert_eq!(m.get(&b), Some(&42));
+    }
+
+    #[test]
+    fn from_specs_appends_extra_servers_with_catalog_metadata() {
+        let reg = ServerRegistry::from_specs(
+            "https://u/mcp",
+            "https://a/mcp",
+            &["sv-track=https://st/mcp".to_string()],
+        )
+        .unwrap();
+        let ids: Vec<&ServerId> = reg.iter().collect();
+        assert_eq!(ids.len(), 3);
+        assert_eq!(ids[2].key(), "sv-track");
+        assert_eq!(ids[2].label(), "SV Track");
+        assert_eq!(ids[2].prefix(), "T");
+        assert_eq!(ids[2].url(), "https://st/mcp");
+        assert!(!ids[2].is_identity_provider());
+    }
+
+    #[test]
+    fn from_specs_rejects_malformed_spec() {
+        assert!(ServerRegistry::from_specs("u", "a", &["noequals".to_string()]).is_err());
+        assert!(ServerRegistry::from_specs("u", "a", &["=onlyurl".to_string()]).is_err());
+        assert!(ServerRegistry::from_specs("u", "a", &["key=".to_string()]).is_err());
     }
 }

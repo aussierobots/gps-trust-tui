@@ -62,6 +62,11 @@ struct Cli {
     #[arg(long, default_value = "https://agent.aussierobots.com.au/mcp", hide_default_value = true)]
     agent_url: String,
 
+    /// Register an additional MCP server as KEY=URL (repeatable). Known keys
+    /// (pf, sv-track, space-data) get sensible labels; others are derived.
+    #[arg(long = "server", value_name = "KEY=URL")]
+    servers: Vec<String>,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -80,6 +85,10 @@ enum Command {
         /// Output format: json, yaml, toml, toon
         #[arg(short, long, default_value = "json", value_parser = ["json", "yaml", "toml", "toon"])]
         output: String,
+
+        /// Restrict to a server by key (disambiguates tool-name collisions)
+        #[arg(long, value_name = "SERVER")]
+        from: Option<String>,
     },
     /// Describe an MCP tool (name, parameters, annotations)
     Describe {
@@ -89,6 +98,10 @@ enum Command {
         /// Output format: json, yaml, toml, toon
         #[arg(short, long, default_value = "json", value_parser = ["json", "yaml", "toml", "toon"])]
         output: String,
+
+        /// Restrict to a server by key (disambiguates tool-name collisions)
+        #[arg(long, value_name = "SERVER")]
+        from: Option<String>,
     },
     /// List all available tools
     Tools {
@@ -115,26 +128,30 @@ async fn main() -> anyhow::Result<()> {
     let use_oauth = cli.oauth && !cli.no_oauth;
 
     match cli.command {
-        Some(Command::Call { tool_name, params, output }) => {
+        Some(Command::Call { tool_name, params, output, from }) => {
             call::run_call(
                 &tool_name,
                 &params,
                 &output,
+                from.as_deref(),
                 cli.api_key,
                 use_oauth,
                 &cli.user_url,
                 &cli.agent_url,
+                &cli.servers,
             )
             .await
         }
-        Some(Command::Describe { tool_name, output }) => {
+        Some(Command::Describe { tool_name, output, from }) => {
             call::run_describe(
                 &tool_name,
                 &output,
+                from.as_deref(),
                 cli.api_key,
                 use_oauth,
                 &cli.user_url,
                 &cli.agent_url,
+                &cli.servers,
             )
             .await
         }
@@ -145,6 +162,7 @@ async fn main() -> anyhow::Result<()> {
                 use_oauth,
                 &cli.user_url,
                 &cli.agent_url,
+                &cli.servers,
             )
             .await
         }
@@ -156,7 +174,7 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("Logged out. Tokens and session cleared.");
             Ok(())
         }
-        None => run_tui(cli.api_key, use_oauth, cli.user_url, cli.agent_url).await,
+        None => run_tui(cli.api_key, use_oauth, cli.user_url, cli.agent_url, cli.servers).await,
     }
 }
 
@@ -165,9 +183,11 @@ async fn run_tui(
     use_oauth: bool,
     user_url: String,
     agent_url: String,
+    servers: Vec<String>,
 ) -> anyhow::Result<()> {
     // --- Phase 1: Build credentials ---
-    let registry = mcp::types::ServerRegistry::user_agent(&user_url, &agent_url);
+    let registry = mcp::types::ServerRegistry::from_specs(&user_url, &agent_url, &servers)
+        .map_err(|e| anyhow::anyhow!(e))?;
     let auth_manager = AuthManager::new(api_key, use_oauth, registry.clone());
 
     eprintln!("Authenticating...");

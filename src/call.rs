@@ -109,8 +109,10 @@ async fn connect_and_list(
     oauth: bool,
     user_url: &str,
     agent_url: &str,
+    extra: &[String],
 ) -> Result<(McpManager, Vec<ToolEntry>)> {
-    let registry = ServerRegistry::user_agent(user_url, agent_url);
+    let registry = ServerRegistry::from_specs(user_url, agent_url, extra)
+        .map_err(|e| anyhow::anyhow!(e))?;
     let auth_manager = AuthManager::new(api_key, oauth, registry.clone());
     let session = auth_manager
         .authenticate()
@@ -137,19 +139,38 @@ async fn connect_and_list(
     Ok((mcp_manager, tools))
 }
 
-/// Find a tool by name, or error with available tool names.
-fn find_tool<'a>(tools: &'a [ToolEntry], tool_name: &str) -> Result<&'a ToolEntry> {
-    tools
+/// Find a tool by name, optionally restricted to a server key. Errors if the
+/// name is ambiguous across servers and no `from` filter disambiguates it.
+fn find_tool<'a>(
+    tools: &'a [ToolEntry],
+    tool_name: &str,
+    from: Option<&str>,
+) -> Result<&'a ToolEntry> {
+    let matches: Vec<&ToolEntry> = tools
         .iter()
-        .find(|t| t.tool.name == tool_name)
-        .with_context(|| {
+        .filter(|t| t.tool.name == tool_name && from.is_none_or(|k| t.server.key() == k))
+        .collect();
+
+    match matches.as_slice() {
+        [] => {
             let available: Vec<&str> = tools.iter().map(|t| t.tool.name.as_str()).collect();
-            format!(
-                "tool '{}' not found. Available tools: {}",
+            bail!(
+                "tool '{}' not found{}. Available tools: {}",
                 tool_name,
+                from.map(|k| format!(" on server '{k}'")).unwrap_or_default(),
                 available.join(", ")
             )
-        })
+        }
+        [one] => Ok(one),
+        many => {
+            let servers: Vec<&str> = many.iter().map(|t| t.server.key()).collect();
+            bail!(
+                "tool '{}' exists on multiple servers ({}). Disambiguate with --from <server>",
+                tool_name,
+                servers.join(", ")
+            )
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -161,14 +182,16 @@ pub async fn run_call(
     tool_name: &str,
     params: &[String],
     output_format: &str,
+    from: Option<&str>,
     api_key: Option<String>,
     oauth: bool,
     user_url: &str,
     agent_url: &str,
+    extra: &[String],
 ) -> Result<()> {
     let arguments = parse_params(params)?;
-    let (mcp_manager, tools) = connect_and_list(api_key, oauth, user_url, agent_url).await?;
-    let tool_entry = find_tool(&tools, tool_name)?;
+    let (mcp_manager, tools) = connect_and_list(api_key, oauth, user_url, agent_url, extra).await?;
+    let tool_entry = find_tool(&tools, tool_name, from)?;
 
     info!(tool = %tool_name, server = %tool_entry.server, "Calling tool");
 
@@ -207,13 +230,15 @@ pub async fn run_call(
 pub async fn run_describe(
     tool_name: &str,
     output_format: &str,
+    from: Option<&str>,
     api_key: Option<String>,
     oauth: bool,
     user_url: &str,
     agent_url: &str,
+    extra: &[String],
 ) -> Result<()> {
-    let (mcp_manager, tools) = connect_and_list(api_key, oauth, user_url, agent_url).await?;
-    let entry = find_tool(&tools, tool_name)?;
+    let (mcp_manager, tools) = connect_and_list(api_key, oauth, user_url, agent_url, extra).await?;
+    let entry = find_tool(&tools, tool_name, from)?;
 
     let output = tool_to_description(entry);
     let formatted = format_output(&output, output_format)?;
@@ -230,8 +255,9 @@ pub async fn run_tools(
     oauth: bool,
     user_url: &str,
     agent_url: &str,
+    extra: &[String],
 ) -> Result<()> {
-    let (mcp_manager, tools) = connect_and_list(api_key, oauth, user_url, agent_url).await?;
+    let (mcp_manager, tools) = connect_and_list(api_key, oauth, user_url, agent_url, extra).await?;
 
     let list: Vec<serde_json::Value> = tools
         .iter()
