@@ -104,6 +104,7 @@ fn server_status_label(app: &App, server: &ServerId) -> (&'static str, Color) {
         Some(ConnectionState::Connected) => ("ok", Color::Green),
         Some(ConnectionState::Connecting) => ("..", Color::Yellow),
         Some(ConnectionState::Error) => ("err", Color::Red),
+        Some(ConnectionState::Unauthorized) => ("no", Color::Magenta),
         _ => ("--", Color::Gray),
     }
 }

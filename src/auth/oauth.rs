@@ -83,8 +83,17 @@ pub async fn authenticate(registry: &ServerRegistry) -> Result<AuthSession> {
             }
         }
 
-        // Full authorization flow
-        let token_resp = authorize(&http, &client_id, audience).await?;
+        // Full authorization flow. Fail-soft: if the auth server declines this
+        // audience for the entity (e.g. invalid_request / access_denied), skip
+        // the server rather than aborting login for all servers. With no
+        // credential, McpManager surfaces it as Unauthorized.
+        let token_resp = match authorize(&http, &client_id, audience).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                warn!(audience = %audience, error = %e, "authorization declined — skipping server");
+                continue;
+            }
+        };
         let expires_at = chrono_now() + token_resp.expires_in;
 
         // Extract account_id from JWT sub claim

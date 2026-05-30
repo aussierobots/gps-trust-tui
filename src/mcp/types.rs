@@ -203,3 +203,50 @@ impl ManagedFieldsPolicy {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg(key: &str, label: &str, prefix: &str, url: &str, idp: bool) -> ServerId {
+        ServerId::new(ServerConfig {
+            key: key.to_string(),
+            label: label.to_string(),
+            prefix: prefix.to_string(),
+            url: url.to_string(),
+            is_identity_provider: idp,
+        })
+    }
+
+    #[test]
+    fn user_agent_registry_has_user_then_agent() {
+        let reg = ServerRegistry::user_agent("https://u/mcp", "https://a/mcp");
+        let ids: Vec<&ServerId> = reg.iter().collect();
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids[0].key(), "user");
+        assert_eq!(ids[0].url(), "https://u/mcp");
+        assert_eq!(ids[1].key(), "agent");
+        assert_eq!(ids[1].prefix(), "A");
+    }
+
+    #[test]
+    fn identity_provider_is_user() {
+        let reg = ServerRegistry::user_agent("https://u/mcp", "https://a/mcp");
+        let provider = reg.identity_provider().expect("registry has an identity provider");
+        assert_eq!(provider.key(), "user");
+        assert!(provider.is_identity_provider());
+    }
+
+    #[test]
+    fn server_id_equality_and_hashing_is_by_key_only() {
+        // Two handles with the same key but different config are equal and hash
+        // alike — so a ServerId built anywhere resolves the same map entry.
+        let a = cfg("x", "X", "X", "url-1", false);
+        let b = cfg("x", "Different", "Y", "url-2", true);
+        assert_eq!(a, b);
+
+        let mut m = HashMap::new();
+        m.insert(a.clone(), 42);
+        assert_eq!(m.get(&b), Some(&42));
+    }
+}

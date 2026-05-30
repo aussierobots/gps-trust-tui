@@ -188,18 +188,21 @@ async fn run_tui(
         .await
         .context("failed to connect MCP servers")?;
 
-    // Resolve identity on the already-connected User session
-    let identity = mcp_manager
-        .bootstrap_identity()
-        .await
-        .context("failed to bootstrap identity")?;
-    eprintln!("Authenticated as {}", identity.display_name);
-
-    // Update session with resolved identity
+    // Resolve identity on the connected identity-provider session (best-effort:
+    // in OAuth mode account_id is already known from the JWT, so a provider that
+    // is down/unauthorized must not abort startup).
     let mut session = session;
-    session.account_id = identity.account_id;
-    session.display_name = identity.display_name;
-    session.entity_type = identity.entity_type;
+    match mcp_manager.bootstrap_identity().await {
+        Ok(identity) => {
+            eprintln!("Authenticated as {}", identity.display_name);
+            session.account_id = identity.account_id;
+            session.display_name = identity.display_name;
+            session.entity_type = identity.entity_type;
+        }
+        Err(e) => {
+            warn!(error = %e, "identity bootstrap failed; continuing with token identity");
+        }
+    }
 
     // List tools from both servers
     let tools = mcp_manager
@@ -215,9 +218,8 @@ async fn run_tui(
     let mut terminal = tui::init()?;
     let mut app = App::new(&registry);
     app.update(Action::AuthSuccess(session));
-    for server in registry.iter() {
-        app.update(Action::McpConnected(server.clone()));
-    }
+    // Per-server connection states (Connected / Error / Unauthorized) arrive via
+    // the action channel from connect_all() and are drained when the loop starts.
     app.set_tools(tools);
 
     let event_handler = EventHandler::new(action_tx.clone());

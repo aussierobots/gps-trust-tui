@@ -14,6 +14,8 @@ pub enum ConnectionState {
     Connecting,
     Connected,
     Error,
+    /// No usable credential for this server (auth server declined the audience).
+    Unauthorized,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,6 +126,10 @@ impl App {
             }
             Action::McpError(server, _msg) => {
                 self.server_state.insert(server, ConnectionState::Error);
+            }
+            Action::McpUnauthorized(server) => {
+                self.server_state
+                    .insert(server, ConnectionState::Unauthorized);
             }
             Action::McpToolsRefreshed(_server) => {
                 // Tools are set externally via set_tools(); this is a signal only.

@@ -13,6 +13,7 @@ pub enum Action {
     McpDisconnected(ServerId),
     #[allow(dead_code)]
     McpError(ServerId, String),
+    McpUnauthorized(ServerId),
     McpToolsRefreshed(ServerId),
     McpProgress {
         #[allow(dead_code)]

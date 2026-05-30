@@ -28,6 +28,11 @@ pub struct AuthSession {
 }
 
 impl AuthSession {
+    /// Whether this session holds a credential for the given server.
+    pub fn has_credential(&self, server: &ServerId) -> bool {
+        self.credentials.contains_key(server)
+    }
+
     /// Build HTTP headers for a specific server's MCP client transport.
     pub fn headers_for(&self, server: &ServerId) -> HashMap<String, String> {
         let mut headers = HashMap::new();
