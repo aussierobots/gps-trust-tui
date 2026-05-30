@@ -87,7 +87,7 @@ pub async fn authenticate(registry: &ServerRegistry) -> Result<AuthSession> {
         // audience for the entity (e.g. invalid_request / access_denied), skip
         // the server rather than aborting login for all servers. With no
         // credential, McpManager surfaces it as Unauthorized.
-        let token_resp = match authorize(&http, &client_id, audience).await {
+        let token_resp = match authorize(&http, &client_id, audience, server.scope()).await {
             Ok(resp) => resp,
             Err(e) => {
                 warn!(audience = %audience, error = %e, "authorization declined — skipping server");
@@ -170,27 +170,18 @@ async fn register_client(http: &reqwest::Client) -> Result<String> {
         .context("DCR response missing client_id")
 }
 
-/// Run the authorization code + PKCE flow for a single audience.
-/// Resolve the scopes to request for a given audience, matching the auth
-/// server's `DCR_AUDIENCE_SCOPE_POLICY`.
-fn scopes_for_audience(audience: &str) -> &'static str {
-    if audience.contains("agent.aussierobots.com.au")
-        || audience.contains("pf.aussierobots.com.au")
-    {
-        "mcp:read mcp:write"
-    } else {
-        "mcp:read"
-    }
-}
-
+/// Run the authorization code + PKCE flow for a single audience. The scope is
+/// supplied by the caller from the server's `ServerConfig` (the single source
+/// of truth, kept in lockstep with the auth server's `DCR_AUDIENCE_SCOPE_POLICY`).
 async fn authorize(
     http: &reqwest::Client,
     client_id: &str,
     audience: &str,
+    scope: &str,
 ) -> Result<TokenResponse> {
     let (verifier, challenge) = generate_pkce();
     let state = generate_state();
-    let scope = urlencoded(scopes_for_audience(audience));
+    let scope = urlencoded(scope);
 
     // Build authorization URL
     let auth_url = format!(

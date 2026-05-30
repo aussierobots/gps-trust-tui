@@ -22,6 +22,9 @@ pub struct ServerConfig {
     pub url: String,
     /// Whether the entity_info identity bootstrap runs against this server.
     pub is_identity_provider: bool,
+    /// OAuth scope to request for this audience (must match the auth server's
+    /// DCR_AUDIENCE_SCOPE_POLICY).
+    pub scope: String,
 }
 
 /// Cheap, clonable handle to a configured server. Equality and hashing are by
@@ -65,24 +68,32 @@ impl ServerId {
             prefix,
             url: url.to_string(),
             is_identity_provider,
+            scope: known_scope(key).to_string(),
         })
+    }
+
+    /// OAuth scope to request for this server's audience.
+    pub fn scope(&self) -> &str {
+        &self.0.scope
     }
 }
 
 /// Catalog of known servers: (key, label, prefix, default_url, is_identity_provider).
 /// Single source of truth for the fleet — `--server <key>` resolves a default
 /// URL here, and display metadata is looked up from it.
-const KNOWN_SERVERS: &[(&str, &str, &str, &str, bool)] = &[
-    ("user", "User", "U", "https://gt.aussierobots.com.au/mcp", true),
-    ("agent", "Agent", "A", "https://agent.aussierobots.com.au/mcp", false),
-    ("pf", "Particle Filter", "P", "https://pf.aussierobots.com.au/mcp", false),
-    ("sv-track", "SV Track", "T", "https://st.aussierobots.com.au/mcp", false),
-    ("space-data", "Space Data", "D", "https://sd.aussierobots.com.au/mcp", false),
+/// (key, label, prefix, default_url, is_identity_provider, scope). Scopes must
+/// match the auth server's DCR_AUDIENCE_SCOPE_POLICY.
+const KNOWN_SERVERS: &[(&str, &str, &str, &str, bool, &str)] = &[
+    ("user", "User", "U", "https://gt.aussierobots.com.au/mcp", true, "mcp:read mcp:write"),
+    ("agent", "Agent", "A", "https://agent.aussierobots.com.au/mcp", false, "mcp:read mcp:write"),
+    ("pf", "Particle Filter", "P", "https://pf.aussierobots.com.au/mcp", false, "mcp:read mcp:write"),
+    ("sv-track", "SV Track", "T", "https://st.aussierobots.com.au/mcp", false, "mcp:read"),
+    ("space-data", "Space Data", "D", "https://sd.aussierobots.com.au/mcp", false, "mcp:read"),
 ];
 
 /// Display metadata + identity role for known server keys; derived otherwise.
 fn known_server_meta(key: &str) -> (String, String, bool) {
-    if let Some((_, label, prefix, _, idp)) = KNOWN_SERVERS.iter().find(|(k, ..)| *k == key) {
+    if let Some((_, label, prefix, _, idp, _)) = KNOWN_SERVERS.iter().find(|(k, ..)| *k == key) {
         return (label.to_string(), prefix.to_string(), *idp);
     }
     let prefix = key
@@ -98,7 +109,16 @@ fn known_default_url(key: &str) -> Option<&'static str> {
     KNOWN_SERVERS
         .iter()
         .find(|(k, ..)| *k == key)
-        .map(|(_, _, _, url, _)| *url)
+        .map(|(_, _, _, url, _, _)| *url)
+}
+
+/// OAuth scope to request for a known server key; read-only for unknown keys.
+fn known_scope(key: &str) -> &'static str {
+    KNOWN_SERVERS
+        .iter()
+        .find(|(k, ..)| *k == key)
+        .map(|(_, _, _, _, _, scope)| *scope)
+        .unwrap_or("mcp:read")
 }
 
 impl PartialEq for ServerId {
@@ -282,6 +302,7 @@ mod tests {
             prefix: prefix.to_string(),
             url: url.to_string(),
             is_identity_provider: idp,
+            scope: "mcp:read".to_string(),
         })
     }
 
@@ -360,5 +381,36 @@ mod tests {
         assert_eq!(ids.len(), 2); // user replaced in place, not appended
         assert_eq!(ids[0].key(), "user");
         assert_eq!(ids[0].url(), "https://custom/mcp");
+    }
+
+    #[test]
+    fn known_servers_request_policy_matching_scopes() {
+        // gt/agent/pf read+write; sv-track/space-data read-only (auth ADR-0005).
+        assert_eq!(known_scope("user"), "mcp:read mcp:write");
+        assert_eq!(known_scope("agent"), "mcp:read mcp:write");
+        assert_eq!(known_scope("pf"), "mcp:read mcp:write");
+        assert_eq!(known_scope("sv-track"), "mcp:read");
+        assert_eq!(known_scope("space-data"), "mcp:read");
+        assert_eq!(known_scope("unknown"), "mcp:read"); // safe default
+        assert_eq!(
+            ServerId::from_key_url("user", "https://gt/mcp").scope(),
+            "mcp:read mcp:write"
+        );
+    }
+
+    #[test]
+    fn managed_fields_injects_account_id_preserving_other_args() {
+        let policy = ManagedFieldsPolicy::new("A#123");
+        let mut args = serde_json::json!({ "device_id": "D#x" });
+        policy.inject(&mut args).unwrap();
+        assert_eq!(args["account_id"], "A#123");
+        assert_eq!(args["device_id"], "D#x");
+    }
+
+    #[test]
+    fn managed_fields_rejects_non_object_args() {
+        let policy = ManagedFieldsPolicy::new("A#123");
+        let mut args = serde_json::json!("not an object");
+        assert!(policy.inject(&mut args).is_err());
     }
 }

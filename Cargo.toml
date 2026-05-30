@@ -1,6 +1,6 @@
 [package]
 name = "gps-trust-mcp-tui"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 
 [[bin]]
@@ -27,5 +27,5 @@ open = "5"
 anyhow = "1.0.102"
 form_urlencoded = "1.2.2"
 toml = "1.0.7"
-serde_yml = "0.0.12"
+serde_yml = "0.0.12"  # maintained fork of the archived serde_yaml — do not "migrate back"
 toon-format = "0.4.4"
