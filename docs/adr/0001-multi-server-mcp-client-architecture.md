@@ -92,7 +92,9 @@ Ordered, independently-shippable slices (version bumps per project convention �
 5. **Register Space Data KB**, then **SV Track + resolve dangling `pf`** — each needs error-state + collision + test work, not data-only. **Gated default-off** (Decision §2): do not enable for all users until the auth-server `requested_audiences` restriction lands. Until then, registration is opt-in (config/feature flag) for development and testing only. *(minor)*
 6. **Hygiene/deps**: `.DS_Store` → `.gitignore`, evaluate `serde_yml` → `serde_yaml`, backfill tests. *(patch)*
 
-**External dependency (not this repo):** per-entity audience gating in `~/gps-trust-auth` (`requested_audiences` field is the smallest option) is the actual gate for "basic user cannot reach SV Track". Tracked in `~/gps-trust-auth/FUTURE.md`.
+**Implementation status (2026-05-30):** slices 0–4 landed on `feat/multi-server-registry` (→ v0.2.1); slice 6's `.gitignore` hygiene shipped early (`serde_yml`/test-backfill remainder pending). Commit order was 1, 2, 4, 3 (independent slices). Slice 5 (register Space Data KB / SV Track, default-off) is **blocked** on the auth-server per-account backfill (test accounts: `nickh`/`username1` positive; `co01`/`cmp01` negative). Naming note: registration is `--server KEY=URL`; the call/describe collision disambiguator is `--from <server>` (avoids clashing with the registration flag — a deviation from the slice-4 sketch's single `--server`).
+
+**External dependency (not this repo):** per-entity audience gating in `~/gps-trust-auth` (`requested_audiences` field is the smallest option) — now implemented as the per-account `mcpAudiences` allowlist (auth ADR-0005), live in prod. It is the actual gate for "basic user cannot reach SV Track".
 
 **Security-sensitive assumption to monitor:** the TUI treats the JWT `sub` as a stable `account_id` (`A#…`, `canonical_subject`) across the single issuer `auth.aussierobots.com.au`. Any change to issuer topology (e.g. separate per-resource issuers) or `sub` semantics invalidates this coupling and the audience assertion.
 

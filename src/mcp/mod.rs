@@ -48,8 +48,9 @@ impl McpManager {
         let mut unauthorized = Vec::new();
 
         for server in registry.iter() {
-            // Fail-closed: no credential → do not create a client / send requests.
-            if !session.has_credential(server) {
+            // Fail-closed: no *usable* credential (missing, or an OAuth token
+            // whose audience doesn't match this server) → no client.
+            if !session.has_usable_credential(server) {
                 unauthorized.push(server.clone());
                 continue;
             }
