@@ -29,3 +29,9 @@ form_urlencoded = "1.2.2"
 toml = "1.0.7"
 serde_yml = "0.0.12"  # maintained fork of the archived serde_yaml — do not "migrate back"
 toon-format = "0.4.4"
+
+[profile.dev]
+# Full DWARF debug info per crate is the main driver of target/ size in a
+# large multi-binary workspace. line-tables-only keeps panic backtraces and
+# line numbers usable while dropping per-variable debug data.
+debug = "line-tables-only"
