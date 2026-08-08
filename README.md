@@ -4,10 +4,11 @@ Terminal UI and CLI for interacting with GPS Trust MCP servers. Connects to both
 
 ## Features
 
-- **Dual MCP server connection** — User (26 tools) and Agent (25 tools) with live status indicators
+- **Multi-server MCP registry** — User and Agent MCP connect by default; opt in to Particle Filter, SV Track, and Space Data KB with `--server`, with live status indicators
 - **OAuth 2.1 + PKCE** authentication (default) with API key fallback
 - **Interactive TUI** — tool browser, schema-driven parameter forms, structured result view
 - **CLI tool calling** — `gttui call <tool> -p key=value` with JSON output to stdout
+- **CLI tool discovery** — `gttui tools` and `gttui describe <tool>` for scripting and introspection
 - **Session management** — `gttui logout` clears local tokens and server session
 - **Reconnect** — `r` key rebuilds MCP connections without restarting
 - **Vim-style navigation** — `j`/`k`, `/` filter, `Tab` focus cycling
@@ -67,6 +68,15 @@ gttui call device_location -p device_id=D#018f9ed3c...
 # Output as YAML, TOML, or TOON
 gttui call account_devices -o yaml
 
+# List available tools
+gttui tools
+
+# Describe a tool's parameters and annotations
+gttui describe device_location
+
+# Opt in to an additional MCP server
+gttui --server pf call svQueueDiagnostics
+
 # Logout (clears tokens + server session)
 gttui logout
 ```
@@ -76,8 +86,12 @@ gttui logout
 | Command | Description |
 |---------|-------------|
 | *(none)* | Launch interactive TUI |
-| `call <tool> [-p key=value]... [-o format]` | Execute a tool, print result to stdout |
+| `call <tool> [-p key=value]... [-o format] [--from server]` | Execute a tool, print result to stdout |
+| `describe <tool> [-o format] [--from server]` | Print a tool's name, parameters, and annotations |
+| `tools [-o format]` | List all available tools across connected servers |
 | `logout` | Clear stored OAuth tokens and server session |
+
+`--from <server>` disambiguates when the same tool name exists on more than one connected server.
 
 ## CLI Tool Calling
 
@@ -162,7 +176,7 @@ Running `gttui` without a subcommand launches the interactive terminal UI.
 
 ```
 +──────────────────────────────────────────────────────────────────+
-│ gttui  nick@aussierobots  [User:ok] [Agent:ok]  49 tools         │
+│ gttui  nick@aussierobots  [User:ok] [Agent:ok]  50 tools         │
 +──────────────────────+───────────────────────────────────────────+
 │  [U] Account Devices │  Account Devices  [U]                     │
 │  [U] Account Robots  │  account_devices                          │
@@ -260,12 +274,17 @@ In the TUI, press `L` (shift-L) to logout and quit. Next run will require a fres
 ```
 Options:
     --api-key <API_KEY>      API key [env: GPS_TRUST_API_KEY]
-    --oauth                  Enable OAuth (default: true)
     --no-oauth               Disable OAuth (API key only)
     --user-url <URL>         User MCP server [default: https://gt.aussierobots.com.au/mcp]
     --agent-url <URL>        Agent MCP server [default: https://agent.aussierobots.com.au/mcp]
+    --server <KEY=URL>       Register an additional MCP server (repeatable). Known
+                              keys (pf, sv-track, space-data) resolve to catalog
+                              defaults, e.g. `--server pf` or `--server sv-track`
     -h, --help               Print help
+    -V, --version            Print version
 ```
+
+Known `--server` keys and their catalog defaults are listed in [CLAUDE.md](CLAUDE.md#servers). Per-MCP access is gated server-side — a non-entitled server shows as `Unauthorized`.
 
 ## Requirements
 
