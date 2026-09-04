@@ -23,3 +23,15 @@ pub fn restore() -> io::Result<()> {
     execute!(io::stdout(), LeaveAlternateScreen, DisableBracketedPaste)?;
     Ok(())
 }
+
+/// Install a panic hook that restores the terminal (raw mode, alternate
+/// screen) before the default panic message prints, then chains to the
+/// previous hook. Without this, a panic mid-session leaves the user's
+/// terminal stuck in raw/alt-screen mode. Call once, before `init()`.
+pub fn install_panic_hook() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        let _ = restore();
+        previous(panic_info);
+    }));
+}
