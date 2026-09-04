@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde_json::Value;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, warn};
-use turul_mcp_protocol::ProgressNotificationParams;
+use turul_mcp_client::ProgressNotificationParams;
 
 use crate::action::Action;
 use crate::mcp::types::ServerId;
@@ -28,8 +28,8 @@ pub fn dispatch_notification(server: &ServerId, value: &Value, tx: &UnboundedSen
                 match serde_json::from_value::<ProgressNotificationParams>(params_val.clone()) {
                     Ok(params) => {
                         let token = match &params.progress_token {
-                            turul_mcp_protocol::ProgressTokenValue::String(s) => s.clone(),
-                            turul_mcp_protocol::ProgressTokenValue::Number(n) => n.to_string(),
+                            turul_mcp_client::ProgressTokenValue::String(s) => s.clone(),
+                            turul_mcp_client::ProgressTokenValue::Number(n) => n.to_string(),
                         };
                         let _ = tx.send(Action::McpProgress {
                             server: server.clone(),

@@ -10,7 +10,6 @@ pub enum Action {
     // MCP lifecycle
     McpConnecting(ServerId),
     McpConnected(ServerId),
-    McpDisconnected(ServerId),
     #[allow(dead_code)]
     McpError(ServerId, String),
     McpUnauthorized(ServerId),
@@ -24,7 +23,11 @@ pub enum Action {
         total: Option<f64>,
         message: Option<String>,
     },
-    McpToolResult(Box<turul_mcp_protocol::CallToolResult>),
+    McpToolResult(Box<turul_mcp_client::CallToolResult>),
+    /// Result of a background id-cache auto-fetch (see `IdFetchRequest`).
+    /// Only scans the result into `id_cache` and refreshes any open form's
+    /// empty carry-forward fields — never touches focus or `result_state`.
+    IdCacheFetched(Box<turul_mcp_client::CallToolResult>),
 
     // Tool interaction
     #[allow(dead_code)]
@@ -43,6 +46,10 @@ pub enum Action {
     FocusPrev,
     ScrollUp,
     ScrollDown,
+    /// Cycle the selected form field's value backward/forward through its
+    /// enum values or cached `*_id` suggestions.
+    CyclePrev,
+    CycleNext,
     #[allow(dead_code)]
     FilterStart,
     FilterChar(char),

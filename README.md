@@ -220,8 +220,15 @@ Running `gttui` without a subcommand launches the interactive terminal UI.
 | `j` / `k` | Navigate fields |
 | `Enter` | Start editing selected field |
 | `Space` | Toggle boolean field |
+| `←` / `→` | Cycle enum values, or `*_id` suggestions seen in prior results |
 | `e` | Execute tool (validates required fields) |
 | `Esc` | Back to detail view |
+
+`device_id`, `station_id`, `robot_id`, and `agent_id` fields pre-fill with the
+most recently used value for that field (still overridable via `←`/`→` or by
+typing over it). Other `*_id` fields (e.g. `entity_id`, `invocation_id`) are
+still offered as suggestions but start empty, since carrying them forward by
+default would more often be wrong than right.
 
 #### Result View
 | Key | Action |

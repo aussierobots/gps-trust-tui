@@ -3,7 +3,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Gauge, Paragraph, Wrap};
 use ratatui::Frame;
-use turul_mcp_protocol::tasks::TaskStatus;
+use turul_mcp_client::tasks::TaskStatus;
 
 use crate::mcp::types::ActiveTask;
 

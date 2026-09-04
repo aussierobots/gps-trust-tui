@@ -1,4 +1,5 @@
 pub mod client;
+pub mod id_cache;
 pub mod notifications;
 pub mod types;
 
@@ -7,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Context, Result, bail};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, info, warn};
-use turul_mcp_protocol::{CallToolResult, ContentBlock};
+use turul_mcp_client::{CallToolResult, ContentBlock};
 
 use crate::action::Action;
 use crate::auth::session::AuthSession;

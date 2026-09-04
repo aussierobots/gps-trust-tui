@@ -38,7 +38,12 @@ fn render_right_panel(frame: &mut Frame, area: ratatui::layout::Rect, app: &App)
     if has_form && has_result {
         let chunks = Layout::vertical([Constraint::Percentage(40), Constraint::Percentage(60)])
             .split(area);
-        tool_form::render_tool_form(frame, chunks[0], app.form_state.as_ref().unwrap());
+        tool_form::render_tool_form(
+            frame,
+            chunks[0],
+            app.form_state.as_ref().unwrap(),
+            &app.id_cache,
+        );
         result_view::render_result_view(
             frame,
             chunks[1],
@@ -46,7 +51,7 @@ fn render_right_panel(frame: &mut Frame, area: ratatui::layout::Rect, app: &App)
             result_focused,
         );
     } else if has_form {
-        tool_form::render_tool_form(frame, area, app.form_state.as_ref().unwrap());
+        tool_form::render_tool_form(frame, area, app.form_state.as_ref().unwrap(), &app.id_cache);
     } else if has_result {
         let chunks = Layout::vertical([Constraint::Percentage(35), Constraint::Percentage(65)])
             .split(area);

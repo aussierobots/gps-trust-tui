@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use turul_mcp_protocol::Task;
-use turul_mcp_protocol::Tool;
+use turul_mcp_client::Task;
+use turul_mcp_client::Tool;
 
 /// Static configuration for one MCP server.
 ///
@@ -222,8 +222,8 @@ impl ToolEntry {
     /// Returns the task support badge for display: [T!], [T?], or empty.
     pub fn task_badge(&self) -> &'static str {
         match self.tool.execution.as_ref().and_then(|e| e.task_support.as_ref()) {
-            Some(turul_mcp_protocol::TaskSupport::Required) => "[T!]",
-            Some(turul_mcp_protocol::TaskSupport::Optional) => "[T?]",
+            Some(turul_mcp_client::TaskSupport::Required) => "[T!]",
+            Some(turul_mcp_client::TaskSupport::Optional) => "[T?]",
             _ => "",
         }
     }
@@ -235,6 +235,19 @@ pub struct ToolCallRequest {
     pub server: ServerId,
     pub tool_name: String,
     pub arguments: serde_json::Value,
+}
+
+/// A background fetch queued to auto-populate `field_name` in the id cache
+/// (see `mcp::id_cache::AUTO_FETCH_CANDIDATES`). Dispatched the same way as a
+/// user-initiated `ToolCallRequest`, but its result is routed to
+/// `Action::IdCacheFetched` instead of `Action::McpToolResult` — it must not
+/// disturb whatever the user is currently looking at (a background
+/// convenience fetch, not something the user asked to run).
+#[derive(Debug, Clone)]
+pub struct IdFetchRequest {
+    pub server: ServerId,
+    pub tool_name: String,
+    pub field_name: String,
 }
 
 /// Tracks an in-flight task.

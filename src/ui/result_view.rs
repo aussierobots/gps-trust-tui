@@ -3,9 +3,9 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
-use turul_mcp_protocol::content::ContentBlock;
-use turul_mcp_protocol::content::ResourceContents;
-use turul_mcp_protocol::tools::CallToolResult;
+use turul_mcp_client::content::ContentBlock;
+use turul_mcp_client::content::ResourceContents;
+use turul_mcp_client::tools::CallToolResult;
 
 
 

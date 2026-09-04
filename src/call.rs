@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use tokio::sync::mpsc;
 use tracing::info;
-use turul_mcp_protocol::ContentBlock;
+use turul_mcp_client::ContentBlock;
 
 use crate::action::Action;
 use crate::auth::AuthManager;
@@ -30,7 +30,7 @@ pub fn parse_params(params: &[String]) -> Result<serde_json::Value> {
 /// Extract JSON output from a CallToolResult.
 ///
 /// Priority: structured_content > first text block parsed as JSON > raw text as string.
-pub fn extract_json(result: &turul_mcp_protocol::CallToolResult) -> serde_json::Value {
+pub fn extract_json(result: &turul_mcp_client::CallToolResult) -> serde_json::Value {
     // Prefer structured_content
     if let Some(ref structured) = result.structured_content {
         return structured.clone();
@@ -360,8 +360,8 @@ fn tool_to_description(entry: &ToolEntry) -> serde_json::Value {
 }
 
 /// Extract type name from JsonSchema.
-fn schema_type_str(schema: &turul_mcp_protocol::JsonSchema) -> &'static str {
-    use turul_mcp_protocol::JsonSchema;
+fn schema_type_str(schema: &turul_mcp_client::JsonSchema) -> &'static str {
+    use turul_mcp_client::JsonSchema;
     match schema {
         JsonSchema::String { .. } => "string",
         JsonSchema::Integer { .. } => "integer",
@@ -373,8 +373,8 @@ fn schema_type_str(schema: &turul_mcp_protocol::JsonSchema) -> &'static str {
 }
 
 /// Extract description from JsonSchema.
-fn schema_desc(schema: &turul_mcp_protocol::JsonSchema) -> Option<&str> {
-    use turul_mcp_protocol::JsonSchema;
+fn schema_desc(schema: &turul_mcp_client::JsonSchema) -> Option<&str> {
+    use turul_mcp_client::JsonSchema;
     match schema {
         JsonSchema::String { description, .. }
         | JsonSchema::Integer { description, .. }
@@ -392,7 +392,7 @@ fn schema_desc(schema: &turul_mcp_protocol::JsonSchema) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use turul_mcp_protocol::{CallToolResult, ContentBlock};
+    use turul_mcp_client::{CallToolResult, ContentBlock};
 
     #[test]
     fn test_parse_params_empty() {

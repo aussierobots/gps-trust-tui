@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::{App, InputMode, PanelFocus};
-use turul_mcp_protocol::JsonSchema;
+use turul_mcp_client::JsonSchema;
 
 /// Render the tool list in the left panel.
 pub fn render_tool_list(frame: &mut Frame, area: Rect, app: &mut App) {

@@ -1,7 +1,8 @@
 use std::time::Duration;
 
-use crossterm::event::{self, Event as CrosstermEvent, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use tokio::sync::mpsc;
+use tracing::debug;
 
 use crate::action::Action;
 
@@ -38,6 +39,18 @@ impl EventHandler {
     }
 
     fn map_key(key: KeyEvent) -> Option<Action> {
+        debug!(?key, "raw key event");
+
+        // Some terminals (e.g. Ghostty, kitty) can report a Release (and
+        // Repeat) event per physical keypress in addition to Press, even
+        // without the app opting into the enhanced keyboard protocol. Acting
+        // on all of them double-fires every mapped action per tap — for a
+        // 2-item suggestion cycle that's a full round trip, i.e. no visible
+        // effect at all. Only Press is a real "the user did something".
+        if key.kind != KeyEventKind::Press {
+            return None;
+        }
+
         // Ctrl+C always quits regardless of mode.
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return Some(Action::Quit);
@@ -47,6 +60,8 @@ impl EventHandler {
             // Non-printable keys — always mapped, reducer interprets per-mode.
             KeyCode::Down => Some(Action::ScrollDown),
             KeyCode::Up => Some(Action::ScrollUp),
+            KeyCode::Left => Some(Action::CyclePrev),
+            KeyCode::Right => Some(Action::CycleNext),
             KeyCode::Enter => Some(Action::Enter),
             KeyCode::Esc => Some(Action::Escape),
             KeyCode::Tab => Some(Action::FocusNext),

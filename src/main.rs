@@ -13,7 +13,7 @@ use std::time::Duration;
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use tokio::sync::{mpsc, Mutex};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::action::Action;
 use crate::app::App;
@@ -235,6 +235,7 @@ async fn run_tui(
     let mcp = Arc::new(Mutex::new(mcp_manager));
 
     // --- Phase 3: Enter TUI ---
+    tui::install_panic_hook();
     let mut terminal = tui::init()?;
     let mut app = App::new(&registry);
     app.update(Action::AuthSuccess(session));
@@ -318,6 +319,33 @@ async fn run_tui(
                     });
                 }
 
+                // Dispatch any queued id-cache auto-fetches (background,
+                // best-effort — a failure just leaves the field empty, same
+                // as if auto-fetch didn't exist).
+                if !app.id_fetch_requests.is_empty() {
+                    for req in std::mem::take(&mut app.id_fetch_requests) {
+                        let field_name = req.field_name.clone();
+                        let request = ToolCallRequest {
+                            server: req.server,
+                            tool_name: req.tool_name,
+                            arguments: serde_json::json!({}),
+                        };
+                        let mcp = Arc::clone(&mcp);
+                        let tx = action_tx.clone();
+                        tokio::spawn(async move {
+                            let manager = mcp.lock().await;
+                            match manager.call_tool(request).await {
+                                Ok(result) => {
+                                    let _ = tx.send(Action::IdCacheFetched(Box::new(result)));
+                                }
+                                Err(e) => {
+                                    debug!(field = %field_name, error = %e, "id-cache auto-fetch failed (non-fatal)");
+                                }
+                            }
+                        });
+                    }
+                }
+
                 // Side effects that need async (MCP calls)
                 match &action {
                     Action::McpToolsRefreshed(_) => {
@@ -399,8 +427,8 @@ async fn dispatch_tool_call(
         Err(e) => {
             error!(tool = %tool_name, error = %e, "Tool call failed");
             let _ = tx.send(Action::McpToolResult(Box::new(
-                turul_mcp_protocol::CallToolResult {
-                    content: vec![turul_mcp_protocol::ContentBlock::Text {
+                turul_mcp_client::CallToolResult {
+                    content: vec![turul_mcp_client::ContentBlock::Text {
                         text: format!("Error: {e}"),
                         annotations: None,
                         meta: None,

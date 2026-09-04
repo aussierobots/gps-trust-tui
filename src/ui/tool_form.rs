@@ -4,8 +4,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 use serde_json::Value;
-use turul_mcp_protocol::schema::JsonSchema;
-use turul_mcp_protocol::tools::ToolSchema;
+use turul_mcp_client::schema::JsonSchema;
+use turul_mcp_client::tools::ToolSchema;
+
+use crate::mcp::id_cache::IdCache;
 
 /// The type of a form field, derived from the JSON Schema property type.
 #[derive(Debug, Clone)]
@@ -59,9 +61,11 @@ impl FormState {
     /// Build a new form from a tool name + its input schema.
     ///
     /// `managed_fields` lists property names that should be auto-injected rather
-    /// than shown to the user (e.g. `["account_id"]`).
-    pub fn new(tool_name: &str, schema: &ToolSchema, managed_fields: &[String]) -> Self {
-        let fields = build_form_fields(schema, managed_fields);
+    /// than shown to the user (e.g. `["account_id"]`). `id_cache` pre-fills
+    /// carry-forward fields (`device_id`, `station_id`, `robot_id`, `agent_id`)
+    /// with their most-recently-used value — see [`IdCache::default_for`].
+    pub fn new(tool_name: &str, schema: &ToolSchema, managed_fields: &[String], id_cache: &IdCache) -> Self {
+        let fields = build_form_fields(schema, managed_fields, id_cache);
         Self {
             tool_name: tool_name.to_string(),
             fields,
@@ -144,34 +148,6 @@ impl FormState {
         }
     }
 
-    /// Cycle an enum field forward.
-    #[allow(dead_code)]
-    pub fn cycle_enum_forward(&mut self) {
-        if let Some(field) = self.selected_field_mut() {
-            if let FieldType::Enum(ref values) = field.field_type {
-                if let Some(pos) = values.iter().position(|v| v == &field.value) {
-                    field.value = values[(pos + 1) % values.len()].clone();
-                } else if let Some(first) = values.first() {
-                    field.value = first.clone();
-                }
-            }
-        }
-    }
-
-    /// Cycle an enum field backward.
-    #[allow(dead_code)]
-    pub fn cycle_enum_backward(&mut self) {
-        if let Some(field) = self.selected_field_mut() {
-            if let FieldType::Enum(ref values) = field.field_type {
-                if let Some(pos) = values.iter().position(|v| v == &field.value) {
-                    field.value = values[(pos + values.len() - 1) % values.len()].clone();
-                } else if let Some(last) = values.last() {
-                    field.value = last.clone();
-                }
-            }
-        }
-    }
-
     /// Append a character to the selected field's value (while editing).
     pub fn push_char(&mut self, ch: char) {
         if let Some(field) = self.selected_field_mut() {
@@ -193,7 +169,8 @@ impl FormState {
 
 /// Build form fields from a `ToolSchema`, marking any field whose name appears
 /// in `managed_fields` as managed (hidden from the UI, injected on submit).
-pub fn build_form_fields(schema: &ToolSchema, managed_fields: &[String]) -> Vec<FormField> {
+/// `id_cache` supplies a pre-filled default for carry-forward id fields.
+pub fn build_form_fields(schema: &ToolSchema, managed_fields: &[String], id_cache: &IdCache) -> Vec<FormField> {
     let properties = match &schema.properties {
         Some(props) => props,
         None => return Vec::new(),
@@ -211,11 +188,16 @@ pub fn build_form_fields(schema: &ToolSchema, managed_fields: &[String]) -> Vec<
             let (field_type, description, default_value) = parse_json_schema(json_schema);
             let required = required_set.contains(&name.as_str());
             let managed = managed_fields.contains(name);
+            let value = id_cache
+                .default_for(name)
+                .map(str::to_string)
+                .or(default_value)
+                .unwrap_or_default();
 
             FormField {
                 name: name.clone(),
                 field_type,
-                value: default_value.unwrap_or_default(),
+                value,
                 required,
                 description,
                 managed,
@@ -331,7 +313,7 @@ pub fn assemble_args(fields: &[FormField]) -> Value {
 // ---------------------------------------------------------------------------
 
 /// Render the tool parameter form into the given area.
-pub fn render_tool_form(frame: &mut Frame, area: Rect, form: &FormState) {
+pub fn render_tool_form(frame: &mut Frame, area: Rect, form: &FormState, id_cache: &IdCache) {
     let mut lines: Vec<Line<'_>> = Vec::new();
 
     // Title
@@ -437,6 +419,19 @@ pub fn render_tool_form(frame: &mut Frame, area: Rect, form: &FormState) {
             }
         }
 
+        // Suggestion-cycle hint (schema enum or cached `*_id` values seen in
+        // prior results) — [<-/->] cycles the field regardless of which kind.
+        let suggestion_count = match &field.field_type {
+            FieldType::Enum(values) => values.len(),
+            _ => id_cache.suggestions(&field.name).len(),
+        };
+        if suggestion_count > 0 {
+            lines.push(Line::from(vec![Span::styled(
+                format!("    [<-/->] {} suggestion(s)", suggestion_count),
+                Style::default().fg(Color::DarkGray),
+            )]));
+        }
+
         // Description below the field.
         if let Some(ref desc) = field.description {
             lines.push(Line::from(vec![Span::styled(
@@ -448,12 +443,21 @@ pub fn render_tool_form(frame: &mut Frame, area: Rect, form: &FormState) {
 
     // Footer
     lines.push(Line::from(""));
-    let footer = if form.editing {
+    let selected_has_suggestions = visible
+        .get(form.selected_field)
+        .map(|(_, field)| match &field.field_type {
+            FieldType::Enum(values) => !values.is_empty(),
+            _ => !id_cache.suggestions(&field.name).is_empty(),
+        })
+        .unwrap_or(false);
+    let footer = if form.editing && selected_has_suggestions {
+        "[Enter] Done  [<-/->] Suggestions  [Esc] Cancel edit"
+    } else if form.editing {
         "[Enter] Done  [Esc] Cancel edit"
     } else if visible.is_empty() {
         "[e] Execute  [Esc] Back"
     } else {
-        "[e] Execute  [Enter] Edit field  [j/k] Navigate  [Space] Toggle  [Esc] Back"
+        "[e] Execute  [Enter] Edit field  [j/k] Navigate  [<-/->] Suggestions  [Space] Toggle  [Esc] Back"
     };
     lines.push(Line::from(vec![Span::styled(
         footer,
@@ -469,4 +473,56 @@ pub fn render_tool_form(frame: &mut Frame, area: Rect, form: &FormState) {
         .wrap(Wrap { trim: false });
 
     frame.render_widget(paragraph, area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn schema(properties: serde_json::Value, required: &[&str]) -> ToolSchema {
+        serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn carry_forward_field_prefills_from_id_cache() {
+        let schema = schema(
+            serde_json::json!({ "device_id": { "type": "string" } }),
+            &["device_id"],
+        );
+        let mut cache = IdCache::new();
+        cache.scan(&serde_json::json!({ "device_id": "D#42" }));
+
+        let fields = build_form_fields(&schema, &[], &cache);
+        assert_eq!(fields[0].name, "device_id");
+        assert_eq!(fields[0].value, "D#42");
+    }
+
+    #[test]
+    fn non_carry_forward_field_stays_empty_despite_cache_hit() {
+        let schema = schema(
+            serde_json::json!({ "entity_id": { "type": "string" } }),
+            &["entity_id"],
+        );
+        let mut cache = IdCache::new();
+        cache.scan(&serde_json::json!({ "entity_id": "d#1" }));
+
+        let fields = build_form_fields(&schema, &[], &cache);
+        assert_eq!(fields[0].name, "entity_id");
+        assert_eq!(fields[0].value, "");
+    }
+
+    #[test]
+    fn field_stays_empty_with_no_cache_hit() {
+        let schema = schema(
+            serde_json::json!({ "station_id": { "type": "string" } }),
+            &["station_id"],
+        );
+        let fields = build_form_fields(&schema, &[], &IdCache::new());
+        assert_eq!(fields[0].value, "");
+    }
 }

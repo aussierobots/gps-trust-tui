@@ -5,8 +5,8 @@ use serde_json::Value;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, info, warn};
 use turul_mcp_client::config::{ClientConfig, ConnectionConfig};
-use turul_mcp_client::{McpClient, McpClientBuilder, ToolCallResponse};
-use turul_mcp_protocol::{CallToolResult, Task, Tool};
+use turul_mcp_client::{McpClient, McpClientBuilder, McpVersion, ToolCallResponse};
+use turul_mcp_client::{CallToolResult, Task, Tool};
 
 use crate::action::Action;
 use crate::mcp::notifications::dispatch_notification;
@@ -31,6 +31,16 @@ impl McpServerClient {
                 headers: Some(headers),
                 ..Default::default()
             },
+            // GPS Trust MCP servers are 2025-11-25-only today: an unrecognized
+            // `server/discover` probe (the 2026-07-28 negotiation handshake)
+            // gets a custom -32001 "Missing Mcp-Session-Id" error rather than
+            // the standard JSON-RPC "method not found", which the client's
+            // downgrade heuristic doesn't treat as a legacy-server signal (by
+            // design, to resist downgrade attacks) — it aborts instead of
+            // guessing. Pin the version to skip the probe and go straight to
+            // `initialize`. Revisit (drop this pin) once the servers add
+            // `server/discover` support.
+            mcp_protocol_version: Some(McpVersion::V2025_11_25),
             ..Default::default()
         };
 
@@ -59,6 +69,9 @@ impl McpServerClient {
 
         info!(
             server = %self.identity,
+            // Bilingual client (turul-mcp-client 0.4): negotiated per-connection,
+            // "2025-11-25" or "2026-07-28" depending on what the server speaks.
+            protocol_version = info.protocol_version.as_deref().unwrap_or("unknown"),
             tools_list_changed = self.caps.tools_list_changed,
             tasks_tool_call = self.caps.tasks_tool_call,
             tasks_cancel = self.caps.tasks_cancel,
@@ -175,9 +188,20 @@ impl McpServerClient {
         });
 
         let lost_identity = self.identity.clone();
-        let lost_tx = tx.clone();
         handler.on_connection_lost(move || {
-            let _ = lost_tx.send(Action::McpDisconnected(lost_identity.clone()));
+            // Do NOT mark the server Disconnected here. This fires whenever the
+            // best-effort SSE push channel (server->client notifications) ends,
+            // which is routine — not a sign the server is unreachable — and on
+            // this stack it is *structurally guaranteed* to happen roughly every
+            // 30s: GPS Trust MCP servers are AWS Lambda behind API Gateway, which
+            // has a hard ~29s integration timeout, so any long-held SSE GET gets
+            // killed by the infra on that cadence regardless of client/server
+            // behavior. Every tool call is an independent POST that doesn't
+            // depend on this side-channel. Confirmed by driving a live session:
+            // the status bar flipped to "disconnected" mid-use while tool calls
+            // kept succeeding. Same rationale as `on_error` below — only surface
+            // this in the trace log.
+            warn!(server = %lost_identity, "MCP notification stream ended (tool calls unaffected)");
         });
 
         let err_identity = self.identity.clone();
