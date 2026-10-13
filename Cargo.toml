@@ -1,6 +1,6 @@
 [package]
 name = "gps-trust-mcp-tui"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 
 [[bin]]
@@ -28,6 +28,9 @@ form_urlencoded = "1.2"
 toml = "1.1"
 serde_yml = "0.0.13"  # maintained fork of the archived serde_yaml — do not "migrate back"
 toon-format = "0.5"
+
+[dev-dependencies]
+gt-data-layout = { path = "../gps-trust-common/gt-data-layout" }
 
 [profile.dev]
 # Full DWARF debug info per crate is the main driver of target/ size in a

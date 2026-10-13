@@ -99,7 +99,7 @@ mod tests {
     /// 0600 (not the umask-derived mode `std::fs::write` alone would give).
     #[test]
     fn save_creates_file_at_0600_under_permissive_umask() {
-        let dir = std::env::temp_dir().join(format!(
+        let dir = gt_data_layout::tmp_dir().join(format!(
             "gttui-token-store-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
