@@ -100,6 +100,41 @@ Ordered, independently-shippable slices (version bumps per project convention �
 
 **Security-sensitive assumption to monitor:** the TUI treats the JWT `sub` as a stable `account_id` (`A#…`, `canonical_subject`) across the single issuer `auth.aussierobots.com.au`. Any change to issuer topology (e.g. separate per-resource issuers) or `sub` semantics invalidates this coupling and the audience assertion.
 
+## Protocol Version and the 2026-07-28 Spec (rev 2, 2026-10-20)
+
+Read from `turul-mcp-client 0.4.2` source (`src/version.rs`, `src/client.rs`, `src/config.rs`), not its README. Status: **Proposed** until the implementation slice below lands.
+
+**1. Negotiation.** The default build is bilingual (`client-bilingual`). With `ClientConfig.mcp_protocol_version = None` it sends `server/discover` (advertising 2026-07-28) and locks one version per connection via `classify_probe`: a valid result locks 2026-07-28; JSON-RPC `-32601` or `-32602`, or `-32022` whose `data.supported` lists 2025-11-25, falls back to `initialize` at 2025-11-25; every other outcome aborts with `NegotiationFailed` (any other JSON-RPC code, `-32022` with no list, any HTTP 4xx/5xx; HTTP 404/405 fall back only with `allow_legacy_gateway_fallback`, off). A server that answers 2025-11-25 is spoken to at 2025-11-25 only if it fails the probe with one of those fallback signals, or if the hint is `Some(V2025_11_25)`, which skips the probe and runs `initialize` directly.
+
+Fleet (all five locked to `turul-mcp-server 0.3.47`; none of their `src/` mentions `server/discover` or 2026-07-28; all 2025-11-25 until the fleet plan moves them):
+
+| Server | Repo | Protocol |
+|---|---|---|
+| User (`gt`) | `gps-trust-mcp` | 2025-11-25 |
+| Agent (`agent`) | `gps-trust-agent-mcp` | 2025-11-25 |
+| `pf` | `gps-trust-sv-pf-mcp` | 2025-11-25 |
+| `sv-track` (`st`) | `gps-trust-sv-track` | 2025-11-25 |
+| `space-data` (`sd`) | `gps-trust-space-data-mcp` | 2025-11-25 |
+
+The current pin (`src/mcp/client.rs`: `Some(V2025_11_25)`) exists because these servers answer the unauthenticated-session `server/discover` probe with a custom `-32001` "Missing Mcp-Session-Id", which is not a fallback signal, so the client aborts. That error body is the recorded live observation from the 0.4 migration; **re-probe each server before unpinning it** (needs a token, so not done in this revision).
+
+**2. Does 0.4 alone cover 2026-07-28?** It covers the client wire side: `server/discover`, per-request `_meta` (protocolVersion, clientInfo, clientCapabilities), `MCP-Protocol-Version` header, no `Mcp-Session-Id`, `subscriptions/listen`, per-request progress (`call_tool_with_progress`), MRTR input-required retries, and the Tasks extension behind the `ext-tasks` feature. It does not cover: (a) any server speaking 2026 (none does); (b) TUI code that assumes 2025 behaviour (item 3); (c) schema detail the public types cannot hold (2026 tool schemas are remapped best-effort; the full schema is `McpClient::tool_input_schema`); (d) answering server-initiated input requests, which the TUI would have to implement before declaring `elicitation`/`sampling`/`roots` (all off by default, and stay off). Caveat: coverage is taken from the crate's own code and comments; the spec text itself was not independently re-read in this revision.
+
+**3. Connection and notification model on 2026-07-28.**
+
+| Today (2025-11-25) | On 2026-07-28 | Replacement |
+|---|---|---|
+| `initialize` + `Mcp-Session-Id`; `session_info().server_capabilities` feeds `inspect_caps` | no session; the 2026 lane leaves `session_info().server_capabilities` unset (only state is set Active) | read `server_capabilities()` / `discovered_server()`; `inspect_caps` must source from them when negotiated 2026 |
+| GET SSE listener (`stream_handler().on_notification`, `on_connection_lost`) carries `tools/list_changed` | listener is not started (no GET stream) | `subscriptions_listen({"toolsListChanged": true})`, held per server; dropping the stream cancels it. Same Lambda/API Gateway ~29s idle limit applies, so reconnect is routine, as `on_connection_lost` already treats it |
+| `notifications/progress` over the GET stream | no stream | `call_tool_with_progress` per call, feeding the existing `Action::McpProgress` |
+| 2025 tasks (`call_tool_with_task`, `get_task`, `cancel_task`, `ServerCaps.tasks_*`) | superseded by the Tasks extension | no TUI path uses these today (`#[allow(dead_code)]`); delete them in the implementing slice rather than port them. Enable `ext-tasks` only when a server offers it |
+
+Tool calls, `list_tools_paginated`, bearer injection and `set_bearer` are version-agnostic from the TUI's side. Auth is unchanged.
+
+**4. Smallest change that drops the pin without breaking item 1.** Removing the pin outright breaks all five servers today (probe aborts on `-32001`). The smallest correct change is to move the pin from a hard-coded constant in `McpServerClient::new` into the owning `ServerConfig` as an optional protocol hint per server: default `Some(V2025_11_25)` for every catalog entry, `None` (auto-negotiate) for a server once it is re-probed and answers `server/discover` or `-32601`. In the same slice: (i) `inspect_caps` reads the negotiated lane's capabilities source, (ii) notification setup branches on `negotiated_version()` (2025: stream handler as now; 2026: `subscriptions_listen`), (iii) progress uses `call_tool_with_progress` on 2026 only, (iv) the unused 2025 task wrappers are deleted. Before any server is unpinned, a test proves a 2025-11-25-only mock server still connects with hint `None` only if it returns a fallback signal, and that the default-pinned path is unchanged.
+
+**Cross-repo and cost.** The design needs no change to any server or shared crate; moving a server off the pin is gated on that server's own fleet-plan upgrade. Monthly cost: $0.
+
 ## Related Decisions
 
 - `~/gps-trust-mcp/docs/adr/001-middleware-based-authorization.md` — server-side authorization boundary this ADR relies on.
@@ -111,3 +146,7 @@ Ordered, independently-shippable slices (version bumps per project convention �
 - `DCR_AUDIENCE_SCOPE_POLICY` — `~/gps-trust-auth/gps-trust-auth-server/src/handlers.rs:136-151`
 - gttui hardcoded 2-server sites — `src/mcp/types.rs:7`, `src/mcp/mod.rs:26-218`, `src/auth/oauth.rs:41-44`, `src/auth/api_key.rs:14-26`, `src/app.rs:72`, `src/ui/status_bar.rs:36`, `src/main.rs:217`
 - Live probe (2026-05-30): `gnss_list` and `list_data_sources` returned identical output with and without a stray `account_id` argument.
+
+## Revision Log
+
+- **rev 2 (2026-10-20)**: added "Protocol Version and the 2026-07-28 Spec" (per-server protocol hint replaces the global 2025-11-25 pin; 2026 connection/notification model). Proposed; implementation pending. No code change.
