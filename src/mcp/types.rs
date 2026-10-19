@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use turul_mcp_client::Task;
 use turul_mcp_client::Tool;
 
 /// Static configuration for one MCP server.
@@ -250,26 +249,10 @@ pub struct IdFetchRequest {
     pub field_name: String,
 }
 
-/// Tracks an in-flight task.
-#[derive(Debug, Clone)]
-pub struct ActiveTask {
-    #[allow(dead_code)]
-    pub server: ServerId,
-    #[allow(dead_code)]
-    pub task: Task,
-    pub tool_name: String,
-    pub progress: Option<f64>,
-    pub total: Option<f64>,
-    pub message: Option<String>,
-}
-
 /// Capabilities detected from a connected server.
 #[derive(Debug, Clone, Default)]
 pub struct ServerCaps {
     pub tools_list_changed: bool,
-    pub tasks_tool_call: bool,
-    pub tasks_cancel: bool,
-    pub tasks_list: bool,
 }
 
 /// Policy for injecting managed fields (e.g. account_id) into tool call arguments.

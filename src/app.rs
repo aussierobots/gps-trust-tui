@@ -5,7 +5,7 @@ use ratatui::widgets::ListState;
 use crate::action::Action;
 use crate::auth::session::AuthSession;
 use crate::mcp::id_cache::{AUTO_FETCH_CANDIDATES, IdCache};
-use crate::mcp::types::{ActiveTask, IdFetchRequest, ServerCaps, ServerId, ServerRegistry, ToolEntry};
+use crate::mcp::types::{IdFetchRequest, ServerCaps, ServerId, ServerRegistry, ToolEntry};
 use crate::ui::result_view::ResultState;
 use crate::ui::tool_form::FormState;
 
@@ -61,8 +61,6 @@ pub struct App {
     // Result state
     pub result_state: Option<ResultState>,
 
-    // Task state
-    pub active_task: Option<ActiveTask>,
 
     /// `*_id` values seen in tool results, offered as cycle-through
     /// suggestions on matching form fields (see `cycle_suggestion`).
@@ -104,7 +102,6 @@ impl App {
             focus: PanelFocus::ToolList,
             form_state: None,
             result_state: None,
-            active_task: None,
             id_cache: IdCache::new(),
             id_fetch_attempted: HashSet::new(),
             id_fetch_requests: Vec::new(),
@@ -146,18 +143,8 @@ impl App {
             }
 
             // --- MCP progress and results ---
-            Action::McpProgress {
-                progress,
-                total,
-                message,
-                ..
-            } => {
-                if let Some(ref mut task) = self.active_task {
-                    task.progress = Some(progress);
-                    task.total = total;
-                    task.message = message;
-                }
-            }
+            // No progress display exists; the action is dispatched but unused.
+            Action::McpProgress { .. } => {}
             Action::McpToolResult(result) => {
                 self.scan_result_for_id_suggestions(&result);
                 // Preserve tool_name from the placeholder result state
@@ -168,8 +155,7 @@ impl App {
                 let mut rs = ResultState::with_result(*result);
                 rs.tool_name = tool_name;
                 self.result_state = Some(rs);
-                self.active_task = None;
-                self.focus = PanelFocus::Result;
+                        self.focus = PanelFocus::Result;
             }
             Action::IdCacheFetched(result) => {
                 self.scan_result_for_id_suggestions(&result);
@@ -706,7 +692,6 @@ impl App {
     fn clear_right_panel(&mut self) {
         self.form_state = None;
         self.result_state = None;
-        self.active_task = None;
     }
 
     /// Move selection down in the filtered tool list.

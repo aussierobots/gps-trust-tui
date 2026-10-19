@@ -102,7 +102,7 @@ Ordered, independently-shippable slices (version bumps per project convention â€
 
 ## Protocol Version and the 2026-07-28 Spec (rev 2, 2026-10-20)
 
-Read from `turul-mcp-client 0.4.2` source (`src/version.rs`, `src/client.rs`, `src/config.rs`), not its README. Status: **Proposed** until the implementation slice below lands.
+Read from `turul-mcp-client 0.4.2` source (`src/version.rs`, `src/client.rs`, `src/config.rs`), not its README. Status: **Proposed** until the implementation slice below lands (`turul-mcp-client` 0.4.3 is published).
 
 **1. Negotiation.** The default build is bilingual (`client-bilingual`). With `ClientConfig.mcp_protocol_version = None` it sends `server/discover` (advertising 2026-07-28) and locks one version per connection via `classify_probe`: a valid result locks 2026-07-28; JSON-RPC `-32601` or `-32602`, or `-32022` whose `data.supported` lists 2025-11-25, falls back to `initialize` at 2025-11-25; every other outcome aborts with `NegotiationFailed` (any other JSON-RPC code, `-32022` with no list, any HTTP 4xx/5xx; HTTP 404/405 fall back only with `allow_legacy_gateway_fallback`, off). A server that answers 2025-11-25 is spoken to at 2025-11-25 only if it fails the probe with one of those fallback signals, or if the hint is `Some(V2025_11_25)`, which skips the probe and runs `initialize` directly.
 
@@ -116,7 +116,7 @@ Fleet (all five locked to `turul-mcp-server 0.3.47`; none of their `src/` mentio
 | `sv-track` (`st`) | `gps-trust-sv-track` | 2025-11-25 |
 | `space-data` (`sd`) | `gps-trust-space-data-mcp` | 2025-11-25 |
 
-The current pin (`src/mcp/client.rs`: `Some(V2025_11_25)`) exists because these servers answer the unauthenticated-session `server/discover` probe with a custom `-32001` "Missing Mcp-Session-Id", which is not a fallback signal, so the client aborts. That error body is the recorded live observation from the 0.4 migration; **re-probe each server before unpinning it** (needs a token, so not done in this revision).
+`turul-mcp-client` 0.4.2 aborts against these servers: they answer the pre-initialize `server/discover` with HTTP 400 and JSON-RPC `-32001` "Missing Mcp-Session-Id header", which `classify_probe` treats as a non-signal. `turul-mcp-client` 0.4.3 (published; turul-mcp-framework tag v0.4.7, commit `a66b506e`; captured from a real 0.3.47 server) reads that reply as a 2025-11-25 server and falls back by itself, so gttui carries **no protocol pin and no per-server hint**.
 
 **2. Does 0.4 alone cover 2026-07-28?** It covers the client wire side: `server/discover`, per-request `_meta` (protocolVersion, clientInfo, clientCapabilities), `MCP-Protocol-Version` header, no `Mcp-Session-Id`, `subscriptions/listen`, per-request progress (`call_tool_with_progress`), MRTR input-required retries, and the Tasks extension behind the `ext-tasks` feature. It does not cover: (a) any server speaking 2026 (none does); (b) TUI code that assumes 2025 behaviour (item 3); (c) schema detail the public types cannot hold (2026 tool schemas are remapped best-effort; the full schema is `McpClient::tool_input_schema`); (d) answering server-initiated input requests, which the TUI would have to implement before declaring `elicitation`/`sampling`/`roots` (all off by default, and stay off). Caveat: coverage is taken from the crate's own code and comments; the spec text itself was not independently re-read in this revision.
 
@@ -131,9 +131,11 @@ The current pin (`src/mcp/client.rs`: `Some(V2025_11_25)`) exists because these 
 
 Tool calls, `list_tools_paginated`, bearer injection and `set_bearer` are version-agnostic from the TUI's side. Auth is unchanged.
 
-**4. Smallest change that drops the pin without breaking item 1.** Removing the pin outright breaks all five servers today (probe aborts on `-32001`). The smallest correct change is to move the pin from a hard-coded constant in `McpServerClient::new` into the owning `ServerConfig` as an optional protocol hint per server: default `Some(V2025_11_25)` for every catalog entry, `None` (auto-negotiate) for a server once it is re-probed and answers `server/discover` or `-32601`. In the same slice: (i) `inspect_caps` reads the negotiated lane's capabilities source, (ii) notification setup branches on `negotiated_version()` (2025: stream handler as now; 2026: `subscriptions_listen`), (iii) progress uses `call_tool_with_progress` on 2026 only, (iv) the unused 2025 task wrappers are deleted. Before any server is unpinned, a test proves a 2025-11-25-only mock server still connects with hint `None` only if it returns a fallback signal, and that the default-pinned path is unchanged.
+**4. Smallest change that drops the pin without breaking item 1.** Delete the `McpVersion::V2025_11_25` pin in `McpServerClient::new` and depend on `turul-mcp-client` 0.4.3, whose fallback keeps every server in the table above on 2025-11-25. `McpServerClient` records the negotiated lane at connect and branches on it: (i) `inspect_caps` reads the lane's capability source (`session_info()` on 2025; `server_capabilities()` on 2026); (ii) `setup_notifications` keeps the GET stream handler on 2025 and holds a `subscriptions_listen({"toolsListChanged": true})` task on 2026, reopening it every 5s whenever it ends (a reopen does not re-list tools, so a change landing in the gap is missed until the next one); (iii) `call_tool` uses `call_tool_with_progress` on 2026 and feeds `Action::McpProgress`; on 2025 the client sends no progress token, so progress arrives only if a server pushes it on the GET stream; (iv) the unused 2025 task wrappers and `ServerCaps.tasks_*` are deleted. Tests: the 2025 lane against an in-process 0.3.47 server, and the 2026 lane (`inspect_caps`, progress, listen) against an in-process `turul-mcp-server` 0.4.
 
-**Cross-repo and cost.** The design needs no change to any server or shared crate; moving a server off the pin is gated on that server's own fleet-plan upgrade. Monthly cost: $0.
+**Progress display removed.** `App.active_task` was never set, so the progress bar, status-bar task segment, `ActiveTask` and `task_view` never rendered; they are deleted. `Action::McpProgress` (token, progress, total) is still dispatched and the reducer ignores it until a progress display is designed.
+
+**Cross-repo and cost.** The design needs no change to any server. The fallback is a `turul-mcp-client` change (0.4.3). Monthly cost: $0.
 
 ## Related Decisions
 
@@ -149,4 +151,5 @@ Tool calls, `list_tools_paginated`, bearer injection and `set_bearer` are versio
 
 ## Revision Log
 
-- **rev 2 (2026-10-20)**: added "Protocol Version and the 2026-07-28 Spec" (per-server protocol hint replaces the global 2025-11-25 pin; 2026 connection/notification model). Proposed; implementation pending. No code change.
+- **rev 2 (2026-10-20)**: added "Protocol Version and the 2026-07-28 Spec" (2026 connection/notification model; pin dropped). Proposed.
+- **rev 2.1 (2026-10-20)**: no per-server hint; `turul-mcp-client` 0.4.3 falls back to 2025-11-25 on the 0.3.47 `-32001`. Lane branching implemented in v0.4.2.

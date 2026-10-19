@@ -52,20 +52,6 @@ pub fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
         Style::default().fg(Color::Gray),
     ));
 
-    // Active task indicator
-    if let Some(ref task) = app.active_task {
-        spans.push(Span::raw("  "));
-        let progress_text = match (task.progress, task.total) {
-            (Some(p), Some(t)) => format!("{}: {:.0}/{:.0}", task.tool_name, p, t),
-            (Some(p), None) => format!("{}: {:.0}", task.tool_name, p),
-            _ => format!("{}...", task.tool_name),
-        };
-        spans.push(Span::styled(
-            progress_text,
-            Style::default().fg(Color::Yellow),
-        ));
-    }
-
     // Mode badge
     let mode_text = match app.input_mode {
         InputMode::Normal => "",

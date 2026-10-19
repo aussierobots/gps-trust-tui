@@ -1,6 +1,6 @@
 # GPS Trust MCP TUI (gttui)
 
-Terminal UI for interacting with GPS Trust User MCP and Agent MCP servers via `turul-mcp-client 0.3.x`.
+Terminal UI for interacting with GPS Trust User MCP and Agent MCP servers via `turul-mcp-client 0.4`.
 
 ## Build Commands
 
@@ -33,17 +33,17 @@ src/
     token_store.rs     — ~/.config/gps-trust/tokens.json persistence (0600)
   mcp/
     mod.rs             — McpManager: multi-server registry lifecycle, managed field injection
-    client.rs          — Single-server wrapper: paginated list, call_tool
+    client.rs          — Single-server wrapper: paginated list, call_tool, 2025/2026 lane branching
+    id_cache.rs        — *_id suggestion cache from tool results
     types.rs           — ServerIdentity, ToolEntry, ManagedFieldsPolicy
     notifications.rs   — Progress + list_changed dispatch, coalescer
   ui/
     mod.rs             — Top-level render() dispatch, right panel layout
-    layout.rs          — Panel arrangement (status, tools, detail, progress, footer)
+    layout.rs          — Panel arrangement (status, tools, detail, footer)
     status_bar.rs      — Connection status, identity, mode badge
     tool_browser.rs    — Tool list with filter + detail pane
     tool_form.rs       — Schema-driven parameter form with managed fields
     result_view.rs     — Structured/Raw tabs, content block renderer
-    task_view.rs       — Task status, progress bar
     login_view.rs      — Auth status display
 ```
 
@@ -60,6 +60,10 @@ src/
 - **Patch bump (0.x.Y)**: Bug fixes, UI tweaks, minor improvements
 - **Minor bump (0.X.0)**: New features (new pane, new auth method, new MCP capability support)
 - After making changes, bump version in `Cargo.toml` accordingly before committing
+
+## Releases
+
+Tag v<version> on every bump. No deploy logs: releases are source-only.
 
 ## Commit Guidelines
 

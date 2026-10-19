@@ -36,7 +36,6 @@ pub fn dispatch_notification(server: &ServerId, value: &Value, tx: &UnboundedSen
                             progress_token: token,
                             progress: params.progress,
                             total: params.total,
-                            message: params.message,
                         });
                     }
                     Err(e) => {

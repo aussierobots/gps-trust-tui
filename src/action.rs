@@ -21,7 +21,6 @@ pub enum Action {
         progress_token: String,
         progress: f64,
         total: Option<f64>,
-        message: Option<String>,
     },
     McpToolResult(Box<turul_mcp_client::CallToolResult>),
     /// Result of a background id-cache auto-fetch (see `IdFetchRequest`).

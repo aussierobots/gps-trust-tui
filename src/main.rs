@@ -283,7 +283,6 @@ async fn run_tui(
 
                         app.form_state = None;
                         app.result_state = Some(rs);
-                        app.active_task = None;
                         app.input_mode = app::InputMode::Normal;
                         app.focus = app::PanelFocus::Result;
 
