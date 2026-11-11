@@ -1,6 +1,6 @@
 # GPS Trust MCP TUI (gttui)
 
-Terminal UI for interacting with GPS Trust User MCP and Agent MCP servers via `turul-mcp-client 0.4`.
+Terminal UI for interacting with GPS Trust User MCP and Agent MCP servers via `turul-mcp-client` (version: see Cargo.toml).
 
 ## Build Commands
 
@@ -28,7 +28,7 @@ src/
   tui.rs               — Terminal init/restore (alternate screen, bracketed paste)
   auth/
     mod.rs             — AuthManager: mode selection (OAuth default, API key opt-in)
-    oauth.rs           — OAuth 2.1 authorization_code + PKCE, localhost callback
+    oauth.rs           — OAuth 2.1 authorization_code + PKCE, localhost callback or pasted redirect (--paste-login, default over ssh)
     api_key.rs         — API key auth via entity_info bootstrap
     session.rs         — AuthSession: per-server credentials, headers_for()
     token_store.rs     — ~/.config/gps-trust/tokens.json persistence (0600)
