@@ -279,8 +279,9 @@ impl ManagedFieldsPolicy {
     }
 
     /// Inject the managed fields the tool declares (`declared` says which) into
-    /// its call arguments. A field the tool does not declare is left out:
-    /// 0.4 servers reject undeclared arguments.
+    /// its call arguments. A field the tool does not declare is left out, and a
+    /// caller-supplied value for it is stripped: 0.4 servers reject undeclared
+    /// arguments, and a managed field is never caller-controlled.
     ///
     /// Returns an error if the arguments are not a JSON object.
     pub fn inject(
@@ -294,6 +295,8 @@ impl ManagedFieldsPolicy {
         for (key, value) in &self.fields {
             if declared(key) {
                 obj.insert(key.clone(), value.clone());
+            } else {
+                obj.remove(key);
             }
         }
         Ok(())
@@ -419,7 +422,7 @@ mod tests {
     #[test]
     fn managed_fields_skips_fields_the_tool_does_not_declare() {
         let policy = ManagedFieldsPolicy::new("A#123");
-        let mut args = serde_json::json!({ "device_id": "D#x" });
+        let mut args = serde_json::json!({ "device_id": "D#x", "account_id": "A#forged" });
         policy.inject(&mut args, |_| false).unwrap();
         assert_eq!(args, serde_json::json!({ "device_id": "D#x" }));
     }

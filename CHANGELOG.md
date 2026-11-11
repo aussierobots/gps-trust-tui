@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.10
+
+- A managed field (`account_id`) the tool does not declare is now stripped from the call arguments, so a caller-supplied value can no longer pass through (found by the security review of 0.4.9). Unit-tested, negated once.
+
 ## 0.4.9
 
 - Fix `Invalid parameters: undeclared argument(s) for tool ...: account_id`. The 0.4 servers reject arguments a tool's schema does not declare, and gttui injected `account_id` into every call. `McpManager` now records which managed fields each listed tool declares and injects only those. Unit-tested (`ManagedFieldsPolicy::inject` skips undeclared fields; negated once). The manager-level wiring has no test.
