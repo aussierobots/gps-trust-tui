@@ -106,7 +106,7 @@ Read from `turul-mcp-client 0.4.2` source (`src/version.rs`, `src/client.rs`, `s
 
 **1. Negotiation.** The default build is bilingual (`client-bilingual`). With `ClientConfig.mcp_protocol_version = None` it sends `server/discover` (advertising 2026-07-28) and locks one version per connection via `classify_probe`: a valid result locks 2026-07-28; JSON-RPC `-32601` or `-32602`, or `-32022` whose `data.supported` lists 2025-11-25, falls back to `initialize` at 2025-11-25; every other outcome aborts with `NegotiationFailed` (any other JSON-RPC code, `-32022` with no list, any HTTP 4xx/5xx; HTTP 404/405 fall back only with `allow_legacy_gateway_fallback`, off). A server that answers 2025-11-25 is spoken to at 2025-11-25 only if it fails the probe with one of those fallback signals, or if the hint is `Some(V2025_11_25)`, which skips the probe and runs `initialize` directly.
 
-Fleet (all five locked to `turul-mcp-server 0.3.47`; none of their `src/` mentions `server/discover` or 2026-07-28; all 2025-11-25 until the fleet plan moves them):
+Fleet as of rev 2 (all five locked to `turul-mcp-server 0.3.47`; none of their `src/` mentions `server/discover` or 2026-07-28; all 2025-11-25). Superseded by rev 2.2: every fleet server now runs `turul-mcp-server` 0.4.6, which answers `server/discover`.
 
 | Server | Repo | Protocol |
 |---|---|---|
@@ -153,3 +153,4 @@ Tool calls, `list_tools_paginated`, bearer injection and `set_bearer` are versio
 
 - **rev 2 (2026-10-20)**: added "Protocol Version and the 2026-07-28 Spec" (2026 connection/notification model; pin dropped). Proposed.
 - **rev 2.1 (2026-10-20)**: no per-server hint; `turul-mcp-client` 0.4.3 falls back to 2025-11-25 on the 0.3.47 `-32001`. Lane branching implemented in v0.4.2.
+- **rev 2.2 (2026-11-12)**: fleet deployed on `turul-mcp-server` 0.4.6 (agent-mcp 0.3.9, sv-track 0.13.17, others earlier; no protocol or lane pin in any server's source). The 0.3.47 test fixture, its `=0.3.47` dev-dependency and the 2025-lane test are deleted. The 2025-lane code in `src/mcp/client.rs` (GET stream handler, session capabilities, progress on the stream handler) is deleted: gttui is 2026-07-28 only, and `connect` fails if the client negotiates anything else. That guard has no test (no 2025 fixture remains).

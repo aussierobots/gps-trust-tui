@@ -33,7 +33,7 @@ src/
     token_store.rs     — ~/.config/gps-trust/tokens.json persistence (0600)
   mcp/
     mod.rs             — McpManager: multi-server registry lifecycle, managed field injection
-    client.rs          — Single-server wrapper: paginated list, call_tool, 2025/2026 lane branching
+    client.rs          — Single-server wrapper: paginated list, call_tool, 2026-07-28 only (listen stream, progress)
     id_cache.rs        — *_id suggestion cache from tool results
     types.rs           — ServerIdentity, ToolEntry, ManagedFieldsPolicy
     notifications.rs   — Progress + list_changed dispatch, coalescer

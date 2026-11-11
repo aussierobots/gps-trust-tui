@@ -1,6 +1,6 @@
 [package]
 name = "gps-trust-mcp-tui"
-version = "0.4.3"
+version = "0.4.4"
 edition = "2024"
 
 [[bin]]
@@ -31,15 +31,11 @@ toon-format = "0.7"
 
 [dev-dependencies]
 gt-data-layout = { path = "../gps-trust-common/gt-data-layout" }
-# In-process servers for the lane tests: a real 2026-07-28 server, and the
-# frozen 0.3.47 server the fleet runs today (renamed so both link).
+# In-process 2026-07-28 server for the lane tests.
 turul-mcp-server = { version = "0.4", features = ["dynamic-tools"] }
 turul-mcp-derive = "0.4"
-turul-mcp-protocol = "0.4"
-turul-mcp-builders = "0.4"
 turul-rpc = { version = "0.2", default-features = false }
 async-trait = "0.1"
-turul-mcp-server-legacy = { package = "turul-mcp-server", version = "=0.3.47" }
 
 [profile.dev]
 # Full DWARF debug info per crate is the main driver of target/ size in a

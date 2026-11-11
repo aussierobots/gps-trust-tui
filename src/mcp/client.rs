@@ -21,8 +21,6 @@ pub struct McpServerClient {
     identity: ServerId,
     client: Arc<McpClient>,
     caps: ServerCaps,
-    /// Wire spec negotiated at connect; `None` before the first connect.
-    lane: Option<McpVersion>,
     /// Action channel, set by `setup_notifications`; 2026 progress rides it.
     tx: OnceLock<UnboundedSender<Action>>,
     /// The 2026 `subscriptions/listen` task, aborted on disconnect.
@@ -58,7 +56,6 @@ impl McpServerClient {
             identity,
             client: Arc::new(client),
             caps: ServerCaps::default(),
-            lane: None,
             tx: OnceLock::new(),
             listen: Mutex::new(None),
             next_progress_token: AtomicU64::new(0),
@@ -72,15 +69,19 @@ impl McpServerClient {
             .await
             .context("MCP connect failed")?;
 
-        // Bilingual client (turul-mcp-client 0.4): one wire spec per connection,
-        // "2025-11-25" or "2026-07-28" depending on what the server speaks.
-        let lane = self.client.negotiated_version().await;
-        self.lane = lane;
-        self.caps = self.inspect_caps(lane).await;
+        // Auto-negotiated (a hint would skip `server/discover`, which carries
+        // the capabilities); the bilingual client may still land on 2025-11-25.
+        let version = self.client.negotiated_version().await;
+        anyhow::ensure!(
+            version == Some(McpVersion::V2026_07_28),
+            "server negotiated {}, gttui speaks 2026-07-28 only",
+            version.map(|v| v.as_str()).unwrap_or("no version")
+        );
+        self.caps = self.inspect_caps().await;
 
         info!(
             server = %self.identity,
-            protocol_version = lane.map(|v| v.as_str()).unwrap_or("unknown"),
+            protocol_version = McpVersion::V2026_07_28.as_str(),
             tools_list_changed = self.caps.tools_list_changed,
             "MCP server connected"
         );
@@ -141,13 +142,10 @@ impl McpServerClient {
         Ok(all_tools)
     }
 
-    /// Tool call. On a 2026-07-28 lane the call carries a progress token and
-    /// its progress rides the request stream into the action channel; on
-    /// 2025-11-25 progress arrives on the GET stream handler instead.
+    /// Tool call. With an action channel set, the call carries a progress
+    /// token and its progress rides the request stream into the channel.
     pub async fn call_tool(&self, name: &str, args: Value) -> Result<CallToolResult> {
-        if self.lane == Some(McpVersion::V2026_07_28)
-            && let Some(tx) = self.tx.get()
-        {
+        if let Some(tx) = self.tx.get() {
             let token = format!(
                 "gttui-{}",
                 self.next_progress_token.fetch_add(1, Ordering::Relaxed)
@@ -178,42 +176,7 @@ impl McpServerClient {
     /// Register notification and connection-lost callbacks that forward to the action channel.
     pub async fn setup_notifications(&self, tx: UnboundedSender<Action>) {
         let _ = self.tx.set(tx.clone());
-        if self.lane == Some(McpVersion::V2026_07_28) {
-            self.spawn_listen(tx);
-            return;
-        }
-        let handler = self.client.stream_handler().await;
-
-        let notif_identity = self.identity.clone();
-        let notif_tx = tx.clone();
-        handler.on_notification(move |value: Value| {
-            dispatch_notification(&notif_identity, &value, &notif_tx);
-        });
-
-        let lost_identity = self.identity.clone();
-        handler.on_connection_lost(move || {
-            // Do NOT mark the server Disconnected here. This fires whenever the
-            // best-effort SSE push channel (server->client notifications) ends,
-            // which is routine — not a sign the server is unreachable — and on
-            // this stack it is *structurally guaranteed* to happen roughly every
-            // 30s: GPS Trust MCP servers are AWS Lambda behind API Gateway, which
-            // has a hard ~29s integration timeout, so any long-held SSE GET gets
-            // killed by the infra on that cadence regardless of client/server
-            // behavior. Every tool call is an independent POST that doesn't
-            // depend on this side-channel. Confirmed by driving a live session:
-            // the status bar flipped to "disconnected" mid-use while tool calls
-            // kept succeeding. Same rationale as `on_error` below — only surface
-            // this in the trace log.
-            warn!(server = %lost_identity, "MCP notification stream ended (tool calls unaffected)");
-        });
-
-        let err_identity = self.identity.clone();
-        handler.on_error(move |msg: String| {
-            // Log but don't set connection state to Error — stream errors are
-            // expected on HTTP transport (no persistent event stream).
-            // Connection state is only meaningful for SSE transports.
-            warn!(server = %err_identity, error = %msg, "MCP stream error (non-fatal)");
-        });
+        self.spawn_listen(tx);
     }
 
     /// 2026-07-28 has no GET stream: hold a `subscriptions/listen` stream for
@@ -247,26 +210,15 @@ impl McpServerClient {
         *self.listen.lock().expect("listen lock") = Some(handle);
     }
 
-    /// Capabilities for the negotiated lane. 2025-11-25 keeps them on the
-    /// session; the stateless 2026-07-28 lane leaves the session empty and
-    /// keeps the `server/discover` result instead.
-    async fn inspect_caps(&self, lane: Option<McpVersion>) -> ServerCaps {
-        let tools_list_changed = match lane {
-            Some(McpVersion::V2026_07_28) => self
-                .client
-                .server_capabilities()
-                .await
-                .and_then(|c| c.pointer("/tools/listChanged").and_then(Value::as_bool))
-                .unwrap_or(false),
-            _ => self
-                .client
-                .session_info()
-                .await
-                .server_capabilities
-                .and_then(|c| c.tools)
-                .and_then(|t| t.list_changed)
-                .unwrap_or(false),
-        };
+    /// Capabilities come from the `server/discover` result: the stateless
+    /// 2026-07-28 lane has no session.
+    async fn inspect_caps(&self) -> ServerCaps {
+        let tools_list_changed = self
+            .client
+            .server_capabilities()
+            .await
+            .and_then(|c| c.pointer("/tools/listChanged").and_then(Value::as_bool))
+            .unwrap_or(false);
         ServerCaps { tools_list_changed }
     }
 }
@@ -371,31 +323,6 @@ mod tests {
         url
     }
 
-    /// In-process turul-mcp-server 0.3.47: the stateful server the fleet runs today.
-    async fn start_legacy_server() -> String {
-        let port = std::net::TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
-        let server = turul_mcp_server_legacy::McpServer::builder()
-            .name("gttui-legacy")
-            .version("0.3.47")
-            .bind_address(format!("127.0.0.1:{port}").parse().unwrap())
-            .sse(false)
-            .build()
-            .expect("build legacy server");
-        tokio::spawn(async move { server.run().await });
-        let url = format!("http://127.0.0.1:{port}/mcp");
-        for _ in 0..50 {
-            if tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
-                return url;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        panic!("legacy server did not start");
-    }
-
     async fn connected(url: &str) -> (McpServerClient, UnboundedReceiver<Action>) {
         let mut client = McpServerClient::new(identity(url), url, HashMap::new()).unwrap();
         client.connect().await.expect("connect with no version pin");
@@ -405,24 +332,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_0_3_server_negotiates_the_2025_lane_with_no_pin() {
-        let url = start_legacy_server().await;
-        let (client, _rx) = connected(&url).await;
-        assert_eq!(client.lane, Some(McpVersion::V2025_11_25));
-        assert!(client.list_all_tools().await.expect("tools/list").is_empty());
-        // The 2025 lane never takes the 2026-only progress path.
-        let err = client
-            .call_tool("missing", json!({}))
-            .await
-            .expect_err("no such tool");
-        assert!(!format!("{err:#}").contains("requires a 2026-07-28"), "{err:#}");
-    }
-
-    #[tokio::test]
     async fn a_2026_server_negotiates_the_2026_lane_and_reads_caps_from_discover() {
         let url = start_2026_server().await;
         let (client, _rx) = connected(&url).await;
-        assert_eq!(client.lane, Some(McpVersion::V2026_07_28));
         let declared = client
             .client
             .server_capabilities()
