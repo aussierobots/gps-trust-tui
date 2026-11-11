@@ -384,4 +384,66 @@ mod tests {
         .await;
         assert!(action.is_ok(), "tools/list_changed must reach the action channel");
     }
+    /// Hand-written HTTP stub of a 2025-11-25-only server: it fails the
+    /// `server/discover` probe with `-32601` and answers `initialize` at
+    /// 2025-11-25, so the bilingual client falls back to that lane.
+    async fn start_2025_only_stub() -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            loop {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                tokio::spawn(async move {
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    let text = loop {
+                        let n = sock.read(&mut chunk).await.unwrap_or(0);
+                        if n == 0 {
+                            return;
+                        }
+                        buf.extend_from_slice(&chunk[..n]);
+                        let text = String::from_utf8_lossy(&buf).into_owned();
+                        if let Some((head, body)) = text.split_once("\r\n\r\n") {
+                            let len = head
+                                .lines()
+                                .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap()))
+                                .unwrap_or(0);
+                            if body.len() >= len {
+                                break body.to_string();
+                            }
+                        }
+                    };
+                    let req: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+                    let reply = match req["method"].as_str() {
+                        Some("server/discover") => json!({"jsonrpc":"2.0","id":req["id"],"error":{"code":-32601,"message":"Method not found"}}),
+                        Some("initialize") => json!({"jsonrpc":"2.0","id":req["id"],"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":"stub-2025","version":"0"}}}),
+                        _ => Value::Null,
+                    };
+                    let (status, payload) = if reply.is_null() {
+                        ("202 Accepted", String::new())
+                    } else {
+                        ("200 OK", reply.to_string())
+                    };
+                    let resp = format!(
+                        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{payload}",
+                        payload.len()
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                });
+            }
+        });
+        format!("http://127.0.0.1:{port}/mcp")
+    }
+
+    #[tokio::test]
+    async fn a_2025_only_server_is_refused_at_connect() {
+        let url = start_2025_only_stub().await;
+        let mut client = McpServerClient::new(identity(&url), &url, HashMap::new()).unwrap();
+        let err = client.connect().await.expect_err("2025-11-25 must be refused");
+        assert_eq!(
+            format!("{err:#}"),
+            "server negotiated 2025-11-25, gttui speaks 2026-07-28 only"
+        );
+    }
 }
