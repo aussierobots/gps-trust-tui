@@ -14,15 +14,18 @@ pub struct AuthManager {
     api_key: Option<String>,
     /// Whether OAuth 2.1 is enabled (default: true).
     oauth: bool,
+    /// Paste the redirect URL instead of using the localhost callback (ssh).
+    paste_login: bool,
     /// The configured MCP servers (audiences to obtain credentials for).
     registry: ServerRegistry,
 }
 
 impl AuthManager {
-    pub fn new(api_key: Option<String>, oauth: bool, registry: ServerRegistry) -> Self {
+    pub fn new(api_key: Option<String>, oauth: bool, paste_login: bool, registry: ServerRegistry) -> Self {
         Self {
             api_key,
             oauth,
+            paste_login,
             registry,
         }
     }
@@ -39,7 +42,7 @@ impl AuthManager {
         }
 
         if self.oauth {
-            return oauth::authenticate(&self.registry)
+            return oauth::authenticate(&self.registry, self.paste_login)
                 .await
                 .context("OAuth authentication failed");
         }

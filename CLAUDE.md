@@ -9,6 +9,7 @@ cargo build                    # Debug build
 cargo build --release          # Release build
 cargo run --bin gttui           # Run (OAuth default)
 cargo run --bin gttui -- --help # CLI help
+cargo run --bin gttui -- --paste-login      # OAuth by pasting the redirect URL (ssh)
 cargo run --bin gttui -- --api-key <key>  # API key mode
 cargo run --bin gttui -- --no-oauth --api-key <key>  # API key only
 cargo run --bin gttui -- call account_devices        # CLI tool call

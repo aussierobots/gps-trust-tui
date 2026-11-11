@@ -18,7 +18,7 @@ const REDIRECT_URI: &str = "http://127.0.0.1:19876/callback";
 const CALLBACK_ADDR: &str = "127.0.0.1:19876";
 
 /// Run the full OAuth 2.1 + PKCE flow for every configured MCP server audience.
-pub async fn authenticate(registry: &ServerRegistry) -> Result<AuthSession> {
+pub async fn authenticate(registry: &ServerRegistry, paste_login: bool) -> Result<AuthSession> {
     let http = reqwest::Client::new();
     let mut store = TokenStore::load();
 
@@ -98,7 +98,7 @@ pub async fn authenticate(registry: &ServerRegistry) -> Result<AuthSession> {
         // audience for the entity (e.g. invalid_request / access_denied), skip
         // the server rather than aborting login for all servers. With no
         // credential, McpManager surfaces it as Unauthorized.
-        let token_resp = match authorize(&http, &client_id, audience, server.scope()).await {
+        let token_resp = match authorize(&http, &client_id, audience, server.scope(), paste_login).await {
             Ok(resp) => resp,
             Err(e) => {
                 warn!(audience = %audience, error = %e, "authorization declined — skipping server");
@@ -234,6 +234,7 @@ async fn authorize(
     client_id: &str,
     audience: &str,
     scope: &str,
+    paste_login: bool,
 ) -> Result<TokenResponse> {
     let (verifier, challenge) = generate_pkce();
     let state = generate_state();
@@ -254,6 +255,25 @@ async fn authorize(
         audience = urlencoded(audience),
     );
 
+    if paste_login {
+        // No listener, no browser: for a remote shell (ssh) where the browser's
+        // 127.0.0.1 redirect cannot reach this machine.
+        eprintln!(
+            "Open this URL in any browser and sign in:\n\n{auth_url}\n\n\
+             The browser will then fail to load http://127.0.0.1:19876/callback?... \
+             Copy that full URL (or just the code= value) from its address bar and paste it here:"
+        );
+        let input = tokio::task::spawn_blocking(|| {
+            let mut line = String::new();
+            std::io::stdin().read_line(&mut line).map(|_| line)
+        })
+        .await
+        .context("stdin reader failed")?
+        .context("failed to read pasted code")?;
+        let code = parse_pasted(&input, &state)?;
+        return exchange_code(http, client_id, &code, &verifier).await;
+    }
+
     // Start callback listener BEFORE opening the browser
     let listener = TcpListener::bind(CALLBACK_ADDR)
         .await
@@ -271,6 +291,42 @@ async fn authorize(
     // Exchange code for tokens
     let token_resp = exchange_code(http, client_id, &code, &verifier).await?;
     Ok(token_resp)
+}
+
+/// Split a query string into key/value pairs (no percent-decoding).
+fn query_params(query: &str) -> HashMap<&str, &str> {
+    query
+        .split('&')
+        .filter_map(|pair| {
+            let mut parts = pair.splitn(2, '=');
+            Some((parts.next()?, parts.next()?))
+        })
+        .collect()
+}
+
+/// Extract the authorization code from what the user pasted: the full
+/// redirect URL, its query string, or the bare code. A pasted `state` must
+/// match; a bare code carries none (PKCE still binds it to this login).
+fn parse_pasted(input: &str, expected_state: &str) -> Result<String> {
+    let input = input.trim();
+    anyhow::ensure!(!input.is_empty(), "nothing pasted");
+    if !input.contains('=') {
+        return Ok(input.to_string());
+    }
+    let query = input.split_once('?').map_or(input, |(_, q)| q);
+    let query = query.split('#').next().unwrap_or(query);
+    let params = query_params(query);
+    if let Some(error) = params.get("error") {
+        bail!("OAuth authorization denied: {error}");
+    }
+    anyhow::ensure!(
+        params.get("state") == Some(&expected_state),
+        "pasted URL has a missing or mismatched state (stale login?)"
+    );
+    params
+        .get("code")
+        .map(|c| c.to_string())
+        .context("pasted URL has no code= value")
 }
 
 /// Wait for the OAuth callback on the localhost listener.
@@ -298,13 +354,7 @@ async fn wait_for_callback(listener: &TcpListener, expected_state: &str) -> Resu
             .and_then(|path| path.split('?').nth(1))
             .unwrap_or("");
 
-        let params: HashMap<&str, &str> = query
-            .split('&')
-            .filter_map(|pair| {
-                let mut parts = pair.splitn(2, '=');
-                Some((parts.next()?, parts.next()?))
-            })
-            .collect();
+        let params = query_params(query);
 
         let state = match params.get("state") {
             Some(s) => *s,
@@ -502,5 +552,29 @@ mod tests {
         // Some other 4xx (e.g. resource/scope quibble) is not a dead client —
         // proceed and let the real flow surface it.
         assert!(preflight_indicates_valid(false, "<html>login</html>"));
+    }
+    #[test]
+    fn pasted_full_url_yields_the_code() {
+        let url = "http://127.0.0.1:19876/callback?code=abc123&state=st1\n";
+        assert_eq!(parse_pasted(url, "st1").unwrap(), "abc123");
+    }
+
+    #[test]
+    fn pasted_query_and_bare_code_are_accepted() {
+        assert_eq!(parse_pasted("code=abc&state=st1", "st1").unwrap(), "abc");
+        assert_eq!(parse_pasted("  abc123  ", "st1").unwrap(), "abc123");
+    }
+
+    #[test]
+    fn pasted_url_with_wrong_or_missing_state_is_refused() {
+        assert!(parse_pasted("http://x/callback?code=abc&state=other", "st1").is_err());
+        assert!(parse_pasted("http://x/callback?code=abc", "st1").is_err());
+    }
+
+    #[test]
+    fn pasted_error_and_empty_input_are_refused() {
+        let denied = parse_pasted("http://x/callback?error=access_denied&state=st1", "st1");
+        assert!(format!("{:#}", denied.unwrap_err()).contains("access_denied"));
+        assert!(parse_pasted("   \n", "st1").is_err());
     }
 }

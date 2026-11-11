@@ -107,6 +107,7 @@ use crate::mcp::types::{ServerRegistry, ToolEntry};
 pub struct Connection<'a> {
     pub api_key: Option<String>,
     pub oauth: bool,
+    pub paste_login: bool,
     pub user_url: &'a str,
     pub agent_url: &'a str,
     pub extra: &'a [String],
@@ -114,10 +115,10 @@ pub struct Connection<'a> {
 
 /// Auth + connect + bootstrap + list tools. Used by all CLI subcommands.
 async fn connect_and_list(conn: Connection<'_>) -> Result<(McpManager, Vec<ToolEntry>)> {
-    let Connection { api_key, oauth, user_url, agent_url, extra } = conn;
+    let Connection { api_key, oauth, paste_login, user_url, agent_url, extra } = conn;
     let registry = ServerRegistry::from_specs(user_url, agent_url, extra)
         .map_err(|e| anyhow::anyhow!(e))?;
-    let auth_manager = AuthManager::new(api_key, oauth, registry.clone());
+    let auth_manager = AuthManager::new(api_key, oauth, paste_login, registry.clone());
     let session = auth_manager
         .authenticate()
         .await

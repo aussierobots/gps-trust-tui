@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.6
+
+- `--paste-login`: OAuth login with no localhost listener or browser launch, for ssh sessions where the browser's `127.0.0.1:19876` redirect cannot reach the machine. gttui prints the authorize URL; paste the redirected URL (or the bare `code=` value) back. A pasted state must match. One paste per server audience, as with the browser flow. Parser unit-tested (state check negated once).
+
 ## 0.4.5
 
 - Test for the 2026-only guard: an in-process hand-written HTTP stub that fails `server/discover` with `-32601` and answers `initialize` at 2025-11-25; `connect` must return `server negotiated 2025-11-25, gttui speaks 2026-07-28 only`. Negated once (guard disabled → red).

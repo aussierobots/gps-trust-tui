@@ -54,6 +54,11 @@ struct Cli {
     #[arg(long = "no-oauth", action = clap::ArgAction::SetTrue)]
     no_oauth: bool,
 
+    /// OAuth login by pasting the redirect URL (for ssh sessions where the
+    /// browser cannot reach this machine's 127.0.0.1:19876)
+    #[arg(long)]
+    paste_login: bool,
+
     /// User MCP server URL
     #[arg(long, default_value = "https://gt.aussierobots.com.au/mcp", hide_default_value = true)]
     user_url: String,
@@ -137,6 +142,7 @@ async fn main() -> anyhow::Result<()> {
                 call::Connection {
                     api_key: cli.api_key,
                     oauth: use_oauth,
+                    paste_login: cli.paste_login,
                     user_url: &cli.user_url,
                     agent_url: &cli.agent_url,
                     extra: &cli.servers,
@@ -152,6 +158,7 @@ async fn main() -> anyhow::Result<()> {
                 call::Connection {
                     api_key: cli.api_key,
                     oauth: use_oauth,
+                    paste_login: cli.paste_login,
                     user_url: &cli.user_url,
                     agent_url: &cli.agent_url,
                     extra: &cli.servers,
@@ -165,6 +172,7 @@ async fn main() -> anyhow::Result<()> {
                 call::Connection {
                     api_key: cli.api_key,
                     oauth: use_oauth,
+                    paste_login: cli.paste_login,
                     user_url: &cli.user_url,
                     agent_url: &cli.agent_url,
                     extra: &cli.servers,
@@ -180,13 +188,14 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("Logged out. Tokens and session cleared.");
             Ok(())
         }
-        None => run_tui(cli.api_key, use_oauth, cli.user_url, cli.agent_url, cli.servers).await,
+        None => run_tui(cli.api_key, use_oauth, cli.paste_login, cli.user_url, cli.agent_url, cli.servers).await,
     }
 }
 
 async fn run_tui(
     api_key: Option<String>,
     use_oauth: bool,
+    paste_login: bool,
     user_url: String,
     agent_url: String,
     servers: Vec<String>,
@@ -194,7 +203,7 @@ async fn run_tui(
     // --- Phase 1: Build credentials ---
     let registry = mcp::types::ServerRegistry::from_specs(&user_url, &agent_url, &servers)
         .map_err(|e| anyhow::anyhow!(e))?;
-    let auth_manager = AuthManager::new(api_key, use_oauth, registry.clone());
+    let auth_manager = AuthManager::new(api_key, use_oauth, paste_login, registry.clone());
 
     eprintln!("Authenticating...");
     let session = auth_manager
