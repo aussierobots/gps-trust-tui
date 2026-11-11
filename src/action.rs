@@ -19,8 +19,6 @@ pub enum Action {
         server: ServerId,
         #[allow(dead_code)]
         progress_token: String,
-        progress: f64,
-        total: Option<f64>,
     },
     McpToolResult(Box<turul_mcp_client::CallToolResult>),
     /// Result of a background id-cache auto-fetch (see `IdFetchRequest`).

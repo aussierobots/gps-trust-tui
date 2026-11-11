@@ -134,11 +134,13 @@ async fn main() -> anyhow::Result<()> {
                 &params,
                 &output,
                 from.as_deref(),
-                cli.api_key,
-                use_oauth,
-                &cli.user_url,
-                &cli.agent_url,
-                &cli.servers,
+                call::Connection {
+                    api_key: cli.api_key,
+                    oauth: use_oauth,
+                    user_url: &cli.user_url,
+                    agent_url: &cli.agent_url,
+                    extra: &cli.servers,
+                },
             )
             .await
         }
@@ -147,22 +149,26 @@ async fn main() -> anyhow::Result<()> {
                 &tool_name,
                 &output,
                 from.as_deref(),
-                cli.api_key,
-                use_oauth,
-                &cli.user_url,
-                &cli.agent_url,
-                &cli.servers,
+                call::Connection {
+                    api_key: cli.api_key,
+                    oauth: use_oauth,
+                    user_url: &cli.user_url,
+                    agent_url: &cli.agent_url,
+                    extra: &cli.servers,
+                },
             )
             .await
         }
         Some(Command::Tools { output }) => {
             call::run_tools(
                 &output,
-                cli.api_key,
-                use_oauth,
-                &cli.user_url,
-                &cli.agent_url,
-                &cli.servers,
+                call::Connection {
+                    api_key: cli.api_key,
+                    oauth: use_oauth,
+                    user_url: &cli.user_url,
+                    agent_url: &cli.agent_url,
+                    extra: &cli.servers,
+                },
             )
             .await
         }
@@ -346,23 +352,20 @@ async fn run_tui(
                 }
 
                 // Side effects that need async (MCP calls)
-                match &action {
-                    Action::McpToolsRefreshed(_) => {
-                        let mcp = Arc::clone(&mcp);
-                        let tx = action_tx.clone();
-                        tokio::spawn(async move {
-                            let manager = mcp.lock().await;
-                            match manager.list_all_tools().await {
-                                Ok(tools) => {
-                                    let _ = tx.send(Action::ToolsLoaded(tools));
-                                }
-                                Err(e) => {
-                                    warn!(error = %e, "Failed to refresh tools");
-                                }
+                if let Action::McpToolsRefreshed(_) = &action {
+                    let mcp = Arc::clone(&mcp);
+                    let tx = action_tx.clone();
+                    tokio::spawn(async move {
+                        let manager = mcp.lock().await;
+                        match manager.list_all_tools().await {
+                            Ok(tools) => {
+                                let _ = tx.send(Action::ToolsLoaded(tools));
                             }
-                        });
-                    }
-                    _ => {}
+                            Err(e) => {
+                                warn!(error = %e, "Failed to refresh tools");
+                            }
+                        }
+                    });
                 }
 
                 if app.should_quit {

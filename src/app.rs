@@ -330,12 +330,11 @@ impl App {
                             }
                             PanelFocus::Form => {
                                 // Start editing the selected field (only if there are visible fields)
-                                if let Some(ref mut form) = self.form_state {
-                                    if !form.editing && form.visible_count() > 0 {
+                                if let Some(ref mut form) = self.form_state
+                                    && !form.editing && form.visible_count() > 0 {
                                         form.editing = true;
                                         self.input_mode = InputMode::FormEdit;
                                     }
-                                }
                             }
                             PanelFocus::Result => {}
                         }
@@ -420,11 +419,10 @@ impl App {
                     self.focus = PanelFocus::ToolList;
                 }
                 ' ' => {
-                    if self.focus == PanelFocus::Form {
-                        if let Some(ref mut form) = self.form_state {
+                    if self.focus == PanelFocus::Form
+                        && let Some(ref mut form) = self.form_state {
                             form.toggle_boolean();
                         }
-                    }
                 }
                 '1' | '2' => {
                     if let Some(ref mut rs) = self.result_state {
@@ -701,14 +699,8 @@ impl App {
         }
         let prev_selected = self.tool_list_state.selected();
         let next = match prev_selected {
-            Some(i) => {
-                if i + 1 < self.filtered_indices.len() {
-                    i + 1
-                } else {
-                    0
-                }
-            }
-            None => 0,
+            Some(i) if i + 1 < self.filtered_indices.len() => i + 1,
+            _ => 0,
         };
         self.tool_list_state.select(Some(next));
         if prev_selected != Some(next) {

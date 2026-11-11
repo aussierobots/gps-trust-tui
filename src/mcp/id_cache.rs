@@ -92,11 +92,10 @@ impl IdCache {
             serde_json::Value::Object(map) => {
                 for (key, v) in map {
                     let normalized = to_snake_case(key);
-                    if normalized.ends_with("_id") {
-                        if let serde_json::Value::String(s) = v {
+                    if normalized.ends_with("_id")
+                        && let serde_json::Value::String(s) = v {
                             self.record(&normalized, s);
                         }
-                    }
                     self.scan(v);
                 }
             }

@@ -20,20 +20,18 @@ impl EventHandler {
         let tx = self.tx.clone();
         tokio::spawn(async move {
             loop {
-                if event::poll(Duration::from_millis(50)).unwrap_or(false) {
-                    if let Ok(evt) = event::read() {
+                if event::poll(Duration::from_millis(50)).unwrap_or(false)
+                    && let Ok(evt) = event::read() {
                         let action = match evt {
                             CrosstermEvent::Key(key) => Self::map_key(key),
                             CrosstermEvent::Paste(text) => Some(Action::PasteText(text)),
                             _ => None,
                         };
-                        if let Some(action) = action {
-                            if tx.send(action).is_err() {
+                        if let Some(action) = action
+                            && tx.send(action).is_err() {
                                 break;
                             }
-                        }
                     }
-                }
             }
         });
     }

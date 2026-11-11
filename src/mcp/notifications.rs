@@ -34,8 +34,6 @@ pub fn dispatch_notification(server: &ServerId, value: &Value, tx: &UnboundedSen
                         let _ = tx.send(Action::McpProgress {
                             server: server.clone(),
                             progress_token: token,
-                            progress: params.progress,
-                            total: params.total,
                         });
                     }
                     Err(e) => {

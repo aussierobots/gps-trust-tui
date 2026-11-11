@@ -276,8 +276,7 @@ mod tests {
     use std::time::Duration;
 
     use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
-    use turul_mcp_derive::McpTool;
-    use turul_mcp_server::prelude::{McpError, McpResult, McpServer};
+    use turul_mcp_server::prelude::{McpError, McpResult, McpServer, McpTool};
 
     use super::*;
     use crate::mcp::types::ServerConfig;
@@ -444,11 +443,8 @@ mod tests {
             .expect("call");
         assert!(serde_json::to_string(&result).unwrap().contains("worked"));
         match rx.try_recv().expect("a progress action") {
-            Action::McpProgress {
-                progress, total, ..
-            } => {
-                assert_eq!(progress, 0.5);
-                assert_eq!(total, Some(1.0));
+            Action::McpProgress { progress_token, .. } => {
+                assert!(progress_token.starts_with("gttui-"), "{progress_token}");
             }
             other => panic!("expected McpProgress, got {other:?}"),
         }

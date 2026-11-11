@@ -137,15 +137,14 @@ impl FormState {
 
     /// Toggle a boolean field at the current selection.
     pub fn toggle_boolean(&mut self) {
-        if let Some(field) = self.selected_field_mut() {
-            if matches!(field.field_type, FieldType::Boolean) {
+        if let Some(field) = self.selected_field_mut()
+            && matches!(field.field_type, FieldType::Boolean) {
                 field.value = if field.value == "true" {
                     "false".to_string()
                 } else {
                     "true".to_string()
                 };
             }
-        }
     }
 
     /// Append a character to the selected field's value (while editing).

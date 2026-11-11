@@ -103,14 +103,18 @@ use crate::mcp::types::{ServerRegistry, ToolEntry};
 // Shared connect helper
 // ---------------------------------------------------------------------------
 
+/// How a CLI subcommand reaches the fleet.
+pub struct Connection<'a> {
+    pub api_key: Option<String>,
+    pub oauth: bool,
+    pub user_url: &'a str,
+    pub agent_url: &'a str,
+    pub extra: &'a [String],
+}
+
 /// Auth + connect + bootstrap + list tools. Used by all CLI subcommands.
-async fn connect_and_list(
-    api_key: Option<String>,
-    oauth: bool,
-    user_url: &str,
-    agent_url: &str,
-    extra: &[String],
-) -> Result<(McpManager, Vec<ToolEntry>)> {
+async fn connect_and_list(conn: Connection<'_>) -> Result<(McpManager, Vec<ToolEntry>)> {
+    let Connection { api_key, oauth, user_url, agent_url, extra } = conn;
     let registry = ServerRegistry::from_specs(user_url, agent_url, extra)
         .map_err(|e| anyhow::anyhow!(e))?;
     let auth_manager = AuthManager::new(api_key, oauth, registry.clone());
@@ -183,14 +187,10 @@ pub async fn run_call(
     params: &[String],
     output_format: &str,
     from: Option<&str>,
-    api_key: Option<String>,
-    oauth: bool,
-    user_url: &str,
-    agent_url: &str,
-    extra: &[String],
+    conn: Connection<'_>,
 ) -> Result<()> {
     let arguments = parse_params(params)?;
-    let (mcp_manager, tools) = connect_and_list(api_key, oauth, user_url, agent_url, extra).await?;
+    let (mcp_manager, tools) = connect_and_list(conn).await?;
     let tool_entry = find_tool(&tools, tool_name, from)?;
 
     info!(tool = %tool_name, server = %tool_entry.server, "Calling tool");
@@ -231,13 +231,9 @@ pub async fn run_describe(
     tool_name: &str,
     output_format: &str,
     from: Option<&str>,
-    api_key: Option<String>,
-    oauth: bool,
-    user_url: &str,
-    agent_url: &str,
-    extra: &[String],
+    conn: Connection<'_>,
 ) -> Result<()> {
-    let (mcp_manager, tools) = connect_and_list(api_key, oauth, user_url, agent_url, extra).await?;
+    let (mcp_manager, tools) = connect_and_list(conn).await?;
     let entry = find_tool(&tools, tool_name, from)?;
 
     let output = tool_to_description(entry);
@@ -251,13 +247,9 @@ pub async fn run_describe(
 /// List all available tools with name, server, and title.
 pub async fn run_tools(
     output_format: &str,
-    api_key: Option<String>,
-    oauth: bool,
-    user_url: &str,
-    agent_url: &str,
-    extra: &[String],
+    conn: Connection<'_>,
 ) -> Result<()> {
-    let (mcp_manager, tools) = connect_and_list(api_key, oauth, user_url, agent_url, extra).await?;
+    let (mcp_manager, tools) = connect_and_list(conn).await?;
 
     let list: Vec<serde_json::Value> = tools
         .iter()
@@ -350,11 +342,10 @@ fn tool_to_description(entry: &ToolEntry) -> serde_json::Value {
     }
 
     // Task support
-    if let Some(ref exec) = tool.execution {
-        if let Some(ref ts) = exec.task_support {
+    if let Some(ref exec) = tool.execution
+        && let Some(ref ts) = exec.task_support {
             desc["taskSupport"] = serde_json::Value::String(format!("{:?}", ts).to_lowercase());
         }
-    }
 
     desc
 }
