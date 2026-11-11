@@ -293,6 +293,14 @@ async fn authorize(
     Ok(token_resp)
 }
 
+/// True in an ssh session, where the browser's 127.0.0.1 redirect cannot
+/// reach this machine. `get` looks up an environment variable.
+pub fn in_ssh_session(get: impl Fn(&str) -> Option<String>) -> bool {
+    ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"]
+        .iter()
+        .any(|k| get(k).is_some_and(|v| !v.is_empty()))
+}
+
 /// Split a query string into key/value pairs (no percent-decoding).
 fn query_params(query: &str) -> HashMap<&str, &str> {
     query
@@ -576,5 +584,15 @@ mod tests {
         let denied = parse_pasted("http://x/callback?error=access_denied&state=st1", "st1");
         assert!(format!("{:#}", denied.unwrap_err()).contains("access_denied"));
         assert!(parse_pasted("   \n", "st1").is_err());
+    }
+    #[test]
+    fn ssh_is_detected_from_the_environment() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+        };
+        assert!(in_ssh_session(env(&[("SSH_CONNECTION", "1.2.3.4 5 6.7.8.9 22")])));
+        assert!(in_ssh_session(env(&[("SSH_TTY", "/dev/pts/1")])));
+        assert!(!in_ssh_session(env(&[("SSH_TTY", ""), ("HOME", "/h")])));
+        assert!(!in_ssh_session(env(&[])));
     }
 }

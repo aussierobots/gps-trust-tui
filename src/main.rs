@@ -54,10 +54,14 @@ struct Cli {
     #[arg(long = "no-oauth", action = clap::ArgAction::SetTrue)]
     no_oauth: bool,
 
-    /// OAuth login by pasting the redirect URL (for ssh sessions where the
-    /// browser cannot reach this machine's 127.0.0.1:19876)
-    #[arg(long)]
+    /// OAuth login by pasting the redirect URL (the default in an ssh session,
+    /// where the browser cannot reach this machine's 127.0.0.1:19876)
+    #[arg(long, overrides_with = "no_paste_login")]
     paste_login: bool,
+
+    /// Use the localhost callback even in an ssh session (needs `ssh -L 19876:127.0.0.1:19876`)
+    #[arg(long)]
+    no_paste_login: bool,
 
     /// User MCP server URL
     #[arg(long, default_value = "https://gt.aussierobots.com.au/mcp", hide_default_value = true)]
@@ -131,6 +135,11 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let use_oauth = cli.oauth && !cli.no_oauth;
+    let paste_login = cli.paste_login
+        || (!cli.no_paste_login && auth::oauth::in_ssh_session(|k| std::env::var(k).ok()));
+    if paste_login && !cli.paste_login && use_oauth && cli.api_key.is_none() {
+        eprintln!("SSH session detected: pasting the login redirect (--no-paste-login to use the localhost callback).");
+    }
 
     match cli.command {
         Some(Command::Call { tool_name, params, output, from }) => {
@@ -142,7 +151,7 @@ async fn main() -> anyhow::Result<()> {
                 call::Connection {
                     api_key: cli.api_key,
                     oauth: use_oauth,
-                    paste_login: cli.paste_login,
+                    paste_login,
                     user_url: &cli.user_url,
                     agent_url: &cli.agent_url,
                     extra: &cli.servers,
@@ -158,7 +167,7 @@ async fn main() -> anyhow::Result<()> {
                 call::Connection {
                     api_key: cli.api_key,
                     oauth: use_oauth,
-                    paste_login: cli.paste_login,
+                    paste_login,
                     user_url: &cli.user_url,
                     agent_url: &cli.agent_url,
                     extra: &cli.servers,
@@ -172,7 +181,7 @@ async fn main() -> anyhow::Result<()> {
                 call::Connection {
                     api_key: cli.api_key,
                     oauth: use_oauth,
-                    paste_login: cli.paste_login,
+                    paste_login,
                     user_url: &cli.user_url,
                     agent_url: &cli.agent_url,
                     extra: &cli.servers,
@@ -188,7 +197,7 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("Logged out. Tokens and session cleared.");
             Ok(())
         }
-        None => run_tui(cli.api_key, use_oauth, cli.paste_login, cli.user_url, cli.agent_url, cli.servers).await,
+        None => run_tui(cli.api_key, use_oauth, paste_login, cli.user_url, cli.agent_url, cli.servers).await,
     }
 }
 

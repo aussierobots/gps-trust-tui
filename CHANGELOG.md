@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.7
+
+- `--paste-login` is now the default in an ssh session (`SSH_CONNECTION`, `SSH_CLIENT` or `SSH_TTY` set), with a one-line notice. `--no-paste-login` restores the localhost callback (for `ssh -L 19876:127.0.0.1:19876`). Detection unit-tested (empty-value check negated once).
+
 ## 0.4.6
 
 - `--paste-login`: OAuth login with no localhost listener or browser launch, for ssh sessions where the browser's `127.0.0.1:19876` redirect cannot reach the machine. gttui prints the authorize URL; paste the redirected URL (or the bare `code=` value) back. A pasted state must match. One paste per server audience, as with the browser flow. Parser unit-tested (state check negated once).
