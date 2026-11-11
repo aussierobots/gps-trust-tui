@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.8
+
+- Clearer paste-login prompt: three numbered steps, and the post-sign-in "can't be reached" page is called out as expected.
+
 ## 0.4.7
 
 - `--paste-login` is now the default in an ssh session (`SSH_CONNECTION`, `SSH_CLIENT` or `SSH_TTY` set), with a one-line notice. `--no-paste-login` restores the localhost callback (for `ssh -L 19876:127.0.0.1:19876`). Detection unit-tested (empty-value check negated once).

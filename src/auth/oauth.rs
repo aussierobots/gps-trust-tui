@@ -259,9 +259,11 @@ async fn authorize(
         // No listener, no browser: for a remote shell (ssh) where the browser's
         // 127.0.0.1 redirect cannot reach this machine.
         eprintln!(
-            "Open this URL in any browser and sign in:\n\n{auth_url}\n\n\
-             The browser will then fail to load http://127.0.0.1:19876/callback?... \
-             Copy that full URL (or just the code= value) from its address bar and paste it here:"
+            "1. Open this URL in any browser and sign in:\n\n{auth_url}\n\n\
+             2. After sign-in the browser lands on a page that will not load (\"can't be reached\"). \
+             That is expected, and this is not an error: the login worked.\n\
+             3. Copy the full address from the browser's address bar (it starts with \
+             http://127.0.0.1:19876/callback?code=...) and paste it here, then press Enter:"
         );
         let input = tokio::task::spawn_blocking(|| {
             let mut line = String::new();
