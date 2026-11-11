@@ -273,15 +273,28 @@ impl ManagedFieldsPolicy {
         Self { fields }
     }
 
-    /// Inject managed fields into tool call arguments.
+    /// Names of the fields this policy manages.
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.fields.keys().map(String::as_str)
+    }
+
+    /// Inject the managed fields the tool declares (`declared` says which) into
+    /// its call arguments. A field the tool does not declare is left out:
+    /// 0.4 servers reject undeclared arguments.
     ///
     /// Returns an error if the arguments are not a JSON object.
-    pub fn inject(&self, args: &mut serde_json::Value) -> Result<(), String> {
+    pub fn inject(
+        &self,
+        args: &mut serde_json::Value,
+        declared: impl Fn(&str) -> bool,
+    ) -> Result<(), String> {
         let obj = args
             .as_object_mut()
             .ok_or("Tool arguments must be a JSON object")?;
         for (key, value) in &self.fields {
-            obj.insert(key.clone(), value.clone());
+            if declared(key) {
+                obj.insert(key.clone(), value.clone());
+            }
         }
         Ok(())
     }
@@ -398,15 +411,23 @@ mod tests {
     fn managed_fields_injects_account_id_preserving_other_args() {
         let policy = ManagedFieldsPolicy::new("A#123");
         let mut args = serde_json::json!({ "device_id": "D#x" });
-        policy.inject(&mut args).unwrap();
+        policy.inject(&mut args, |_| true).unwrap();
         assert_eq!(args["account_id"], "A#123");
         assert_eq!(args["device_id"], "D#x");
+    }
+
+    #[test]
+    fn managed_fields_skips_fields_the_tool_does_not_declare() {
+        let policy = ManagedFieldsPolicy::new("A#123");
+        let mut args = serde_json::json!({ "device_id": "D#x" });
+        policy.inject(&mut args, |_| false).unwrap();
+        assert_eq!(args, serde_json::json!({ "device_id": "D#x" }));
     }
 
     #[test]
     fn managed_fields_rejects_non_object_args() {
         let policy = ManagedFieldsPolicy::new("A#123");
         let mut args = serde_json::json!("not an object");
-        assert!(policy.inject(&mut args).is_err());
+        assert!(policy.inject(&mut args, |_| true).is_err());
     }
 }

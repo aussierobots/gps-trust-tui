@@ -35,6 +35,9 @@ pub struct McpManager {
     unauthorized: Vec<ServerId>,
     // Servers currently connected (updated by connect_all).
     connected: HashSet<ServerId>,
+    // (server, tool, field) for every managed field a listed tool declares.
+    // Injection is limited to these: 0.4 servers reject undeclared arguments.
+    declared_managed: std::sync::Mutex<HashSet<(ServerId, String, String)>>,
 }
 
 impl McpManager {
@@ -76,6 +79,7 @@ impl McpManager {
             headers,
             unauthorized,
             connected: HashSet::new(),
+            declared_managed: Default::default(),
         })
     }
 
@@ -233,6 +237,14 @@ impl McpManager {
             match client.list_all_tools().await {
                 Ok(tools) => {
                     for tool in tools {
+                        let props = tool.input_schema.properties.as_ref();
+                        let mut declared = self.declared_managed.lock().expect("declared lock");
+                        for name in self.managed_fields.names() {
+                            if props.is_some_and(|p| p.contains_key(name)) {
+                                declared.insert((server.clone(), tool.name.clone(), name.to_string()));
+                            }
+                        }
+                        drop(declared);
                         entries.push(ToolEntry {
                             server: server.clone(),
                             tool,
@@ -251,9 +263,18 @@ impl McpManager {
 
     /// Call a tool, routing to the correct server.
     pub async fn call_tool(&self, mut request: ToolCallRequest) -> Result<CallToolResult> {
-        self.managed_fields
-            .inject(&mut request.arguments)
-            .map_err(|e| anyhow::anyhow!(e))?;
+        {
+            let declared = self.declared_managed.lock().expect("declared lock");
+            self.managed_fields
+                .inject(&mut request.arguments, |field| {
+                    declared.contains(&(
+                        request.server.clone(),
+                        request.tool_name.clone(),
+                        field.to_string(),
+                    ))
+                })
+                .map_err(|e| anyhow::anyhow!(e))?;
+        }
 
         let client = self
             .clients
