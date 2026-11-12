@@ -77,8 +77,8 @@ Tag v<version> on every bump. No deploy logs: releases are source-only.
 
 Default fleet (always connected):
 
-- User MCP: `https://gt.aussierobots.com.au/mcp` (25 tools) — identity provider
-- Agent MCP: `https://agent.aussierobots.com.au/mcp` (25 tools)
+- User MCP: `https://gt.aussierobots.com.au/mcp` — identity provider
+- Agent MCP: `https://agent.aussierobots.com.au/mcp`
 
 Opt-in via `--server <key>` (catalog default URL) or `--server key=url`:
 
