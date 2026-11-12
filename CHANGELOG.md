@@ -1,5 +1,9 @@
 # Changelog
 
+## Live readback (12 Nov, no release)
+
+- Reported by architect-dispatch, not seen first-hand: sign-in from oats over SSH on 0.4.10 (paste-login default), "Loaded 71 tools", no protocol error. Only `gt` and `agent` are connected by default, so those two are live-proven on 2026-07-28; `pf`, `sv-track` and `space-data` are proven from source only. Closes the legacy removal (0.4.4/0.4.5) for the default fleet. Details: ADR-0001 rev 2.4.
+
 ## 0.4.10
 
 - A managed field (`account_id`) the tool does not declare is now stripped from the call arguments, so a caller-supplied value can no longer pass through (found by the security review of 0.4.9). Unit-tested, negated once.
