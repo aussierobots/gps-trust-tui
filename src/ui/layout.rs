@@ -23,7 +23,7 @@ pub struct MainLayout {
 pub fn main_layout(area: Rect) -> MainLayout {
     let vertical = Layout::vertical([
         Constraint::Length(1), // status bar
-        Constraint::Min(0),   // main content
+        Constraint::Min(0),    // main content
         Constraint::Length(1), // footer
     ])
     .split(area);

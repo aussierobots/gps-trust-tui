@@ -98,7 +98,9 @@ pub async fn authenticate(registry: &ServerRegistry, paste_login: bool) -> Resul
         // audience for the entity (e.g. invalid_request / access_denied), skip
         // the server rather than aborting login for all servers. With no
         // credential, McpManager surfaces it as Unauthorized.
-        let token_resp = match authorize(&http, &client_id, audience, server.scope(), paste_login).await {
+        let token_resp = match authorize(&http, &client_id, audience, server.scope(), paste_login)
+            .await
+        {
             Ok(resp) => resp,
             Err(e) => {
                 warn!(audience = %audience, error = %e, "authorization declined — skipping server");
@@ -117,10 +119,7 @@ pub async fn authenticate(registry: &ServerRegistry, paste_login: bool) -> Resul
             server.clone(),
             ServerCredentials::OAuth {
                 access_token: token_resp.access_token.clone(),
-                refresh_token: token_resp
-                    .refresh_token
-                    .clone()
-                    .unwrap_or_default(),
+                refresh_token: token_resp.refresh_token.clone().unwrap_or_default(),
                 expires_at,
                 audience: audience.to_string(),
             },
@@ -370,7 +369,11 @@ async fn wait_for_callback(listener: &TcpListener, expected_state: &str) -> Resu
             Some(s) => *s,
             None => {
                 // Not an OAuth callback (favicon, stale tab, etc.) — dismiss
-                let _ = send_html(&mut stream, "Not an OAuth callback. You may close this tab.").await;
+                let _ = send_html(
+                    &mut stream,
+                    "Not an OAuth callback. You may close this tab.",
+                )
+                .await;
                 continue;
             }
         };
@@ -387,15 +390,23 @@ async fn wait_for_callback(listener: &TcpListener, expected_state: &str) -> Resu
                 // Error callback (e.g. user denied consent)
                 let error = params.get("error").unwrap_or(&"unknown");
                 let desc = params.get("error_description").unwrap_or(&"");
-                let _ = send_html(&mut stream, &format!("Authorization failed: {} {}", error, desc)).await;
+                let _ = send_html(
+                    &mut stream,
+                    &format!("Authorization failed: {} {}", error, desc),
+                )
+                .await;
                 bail!("OAuth authorization denied: {} {}", error, desc);
             }
         };
 
-        let _ = send_html(&mut stream, "\
+        let _ = send_html(
+            &mut stream,
+            "\
 <script>window.close();</script>\
 <h2>Authentication successful</h2>\
-<p>This tab should close automatically. If not, you may close it.</p>").await;
+<p>This tab should close automatically. If not, you may close it.</p>",
+        )
+        .await;
 
         return Ok(code);
     }
@@ -590,9 +601,17 @@ mod tests {
     #[test]
     fn ssh_is_detected_from_the_environment() {
         let env = |pairs: &'static [(&'static str, &'static str)]| {
-            move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+            move |k: &str| {
+                pairs
+                    .iter()
+                    .find(|(n, _)| *n == k)
+                    .map(|(_, v)| v.to_string())
+            }
         };
-        assert!(in_ssh_session(env(&[("SSH_CONNECTION", "1.2.3.4 5 6.7.8.9 22")])));
+        assert!(in_ssh_session(env(&[(
+            "SSH_CONNECTION",
+            "1.2.3.4 5 6.7.8.9 22"
+        )])));
         assert!(in_ssh_session(env(&[("SSH_TTY", "/dev/pts/1")])));
         assert!(!in_ssh_session(env(&[("SSH_TTY", ""), ("HOME", "/h")])));
         assert!(!in_ssh_session(env(&[])));

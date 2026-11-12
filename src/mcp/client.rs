@@ -33,11 +33,7 @@ const LISTEN_RETRY: Duration = Duration::from_secs(5);
 
 impl McpServerClient {
     /// Build an MCP client for the given server with auth headers.
-    pub fn new(
-        identity: ServerId,
-        url: &str,
-        headers: HashMap<String, String>,
-    ) -> Result<Self> {
+    pub fn new(identity: ServerId, url: &str, headers: HashMap<String, String>) -> Result<Self> {
         let config = ClientConfig {
             connection: ConnectionConfig {
                 headers: Some(headers),
@@ -64,10 +60,7 @@ impl McpServerClient {
 
     /// Connect to the server, inspect capabilities.
     pub async fn connect(&mut self) -> Result<()> {
-        self.client
-            .connect()
-            .await
-            .context("MCP connect failed")?;
+        self.client.connect().await.context("MCP connect failed")?;
 
         // Auto-negotiated (a hint would skip `server/discover`, which carries
         // the capabilities); the bilingual client may still land on 2025-11-25.
@@ -155,7 +148,8 @@ impl McpServerClient {
             return self
                 .client
                 .call_tool_with_progress(name, args, json!(token), move |params| {
-                    let notification = json!({"method": "notifications/progress", "params": params});
+                    let notification =
+                        json!({"method": "notifications/progress", "params": params});
                     dispatch_notification(&server, &notification, &tx);
                 })
                 .await
@@ -382,7 +376,10 @@ mod tests {
             }
         })
         .await;
-        assert!(action.is_ok(), "tools/list_changed must reach the action channel");
+        assert!(
+            action.is_ok(),
+            "tools/list_changed must reach the action channel"
+        );
     }
     /// Hand-written HTTP stub of a 2025-11-25-only server: it fails the
     /// `server/discover` probe with `-32601` and answers `initialize` at
@@ -407,7 +404,11 @@ mod tests {
                         if let Some((head, body)) = text.split_once("\r\n\r\n") {
                             let len = head
                                 .lines()
-                                .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap()))
+                                .find_map(|l| {
+                                    l.to_ascii_lowercase()
+                                        .strip_prefix("content-length:")
+                                        .map(|v| v.trim().parse::<usize>().unwrap())
+                                })
                                 .unwrap_or(0);
                             if body.len() >= len {
                                 break body.to_string();
@@ -416,8 +417,12 @@ mod tests {
                     };
                     let req: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
                     let reply = match req["method"].as_str() {
-                        Some("server/discover") => json!({"jsonrpc":"2.0","id":req["id"],"error":{"code":-32601,"message":"Method not found"}}),
-                        Some("initialize") => json!({"jsonrpc":"2.0","id":req["id"],"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":"stub-2025","version":"0"}}}),
+                        Some("server/discover") => {
+                            json!({"jsonrpc":"2.0","id":req["id"],"error":{"code":-32601,"message":"Method not found"}})
+                        }
+                        Some("initialize") => {
+                            json!({"jsonrpc":"2.0","id":req["id"],"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":"stub-2025","version":"0"}}})
+                        }
                         _ => Value::Null,
                     };
                     let (status, payload) = if reply.is_null() {
@@ -440,7 +445,10 @@ mod tests {
     async fn a_2025_only_server_is_refused_at_connect() {
         let url = start_2025_only_stub().await;
         let mut client = McpServerClient::new(identity(&url), &url, HashMap::new()).unwrap();
-        let err = client.connect().await.expect_err("2025-11-25 must be refused");
+        let err = client
+            .connect()
+            .await
+            .expect_err("2025-11-25 must be refused");
         assert_eq!(
             format!("{err:#}"),
             "server negotiated 2025-11-25, gttui speaks 2026-07-28 only"

@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use crossterm::event::{self, Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    self, Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+};
 use tokio::sync::mpsc;
 use tracing::debug;
 
@@ -21,17 +23,19 @@ impl EventHandler {
         tokio::spawn(async move {
             loop {
                 if event::poll(Duration::from_millis(50)).unwrap_or(false)
-                    && let Ok(evt) = event::read() {
-                        let action = match evt {
-                            CrosstermEvent::Key(key) => Self::map_key(key),
-                            CrosstermEvent::Paste(text) => Some(Action::PasteText(text)),
-                            _ => None,
-                        };
-                        if let Some(action) = action
-                            && tx.send(action).is_err() {
-                                break;
-                            }
+                    && let Ok(evt) = event::read()
+                {
+                    let action = match evt {
+                        CrosstermEvent::Key(key) => Self::map_key(key),
+                        CrosstermEvent::Paste(text) => Some(Action::PasteText(text)),
+                        _ => None,
+                    };
+                    if let Some(action) = action
+                        && tx.send(action).is_err()
+                    {
+                        break;
                     }
+                }
             }
         });
     }

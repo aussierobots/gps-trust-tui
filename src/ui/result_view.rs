@@ -1,13 +1,11 @@
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
-use ratatui::Frame;
 use turul_mcp_client::content::ContentBlock;
 use turul_mcp_client::content::ResourceContents;
 use turul_mcp_client::tools::CallToolResult;
-
-
 
 /// Which tab is active in the result view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -77,12 +75,7 @@ impl ResultState {
 // ---------------------------------------------------------------------------
 
 /// Render the result view into the given area.
-pub fn render_result_view(
-    frame: &mut Frame,
-    area: Rect,
-    state: &ResultState,
-    focused: bool,
-) {
+pub fn render_result_view(frame: &mut Frame, area: Rect, state: &ResultState, focused: bool) {
     let is_error = state
         .result
         .as_ref()
@@ -248,10 +241,7 @@ fn render_value_friendly(value: &serde_json::Value, lines: &mut Vec<Line<'static
                     _ => {
                         lines.push(Line::from(vec![
                             Span::raw(indent.clone()),
-                            Span::styled(
-                                format!("{key}  "),
-                                Style::default().fg(Color::DarkGray),
-                            ),
+                            Span::styled(format!("{key}  "), Style::default().fg(Color::DarkGray)),
                             format_scalar(val),
                         ]));
                     }
@@ -270,10 +260,7 @@ fn render_value_friendly(value: &serde_json::Value, lines: &mut Vec<Line<'static
             }
         }
         _ => {
-            lines.push(Line::from(vec![
-                Span::raw(indent),
-                format_scalar(value),
-            ]));
+            lines.push(Line::from(vec![Span::raw(indent), format_scalar(value)]));
         }
     }
 }
@@ -328,8 +315,8 @@ fn build_raw_lines(state: &ResultState) -> Vec<Line<'static>> {
                 .fg(Color::DarkGray)
                 .add_modifier(Modifier::BOLD),
         )));
-        let pretty = serde_json::to_string_pretty(structured)
-            .unwrap_or_else(|_| structured.to_string());
+        let pretty =
+            serde_json::to_string_pretty(structured).unwrap_or_else(|_| structured.to_string());
         for line in pretty.lines() {
             lines.push(Line::from(Span::styled(line.to_string(), text_style)));
         }
@@ -355,8 +342,8 @@ fn render_content_block(block: &ContentBlock, lines: &mut Vec<Line<'static>>, st
     match block {
         ContentBlock::Text { text, .. } => {
             if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(text) {
-                let pretty = serde_json::to_string_pretty(&json_val)
-                    .unwrap_or_else(|_| text.clone());
+                let pretty =
+                    serde_json::to_string_pretty(&json_val).unwrap_or_else(|_| text.clone());
                 for line in pretty.lines() {
                     lines.push(Line::from(Span::styled(line.to_string(), style)));
                 }

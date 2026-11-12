@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.11
+
+- Lint and format gate: `scripts/gate.sh` runs tests, `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings`. `rustfmt.toml` pins `style_edition = "2024"`; the code is formatted to it (whitespace only, no `#[allow]` added). Both checks proven red: a planted `v.len() == 0` fails clippy (`len_zero`), a planted misformat fails `cargo fmt --check`.
+
 ## Live readback (12 Nov, no release)
 
 - Reported by architect-dispatch, not seen first-hand: sign-in from oats over SSH on 0.4.10 (paste-login default), "Loaded 71 tools", no protocol error. Only `gt` and `agent` are connected by default, so those two are live-proven on 2026-07-28; `pf`, `sv-track` and `space-data` are proven from source only. Closes the legacy removal (0.4.4/0.4.5) for the default fleet. Details: ADR-0001 rev 2.4.

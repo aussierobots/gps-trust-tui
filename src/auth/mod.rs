@@ -21,7 +21,12 @@ pub struct AuthManager {
 }
 
 impl AuthManager {
-    pub fn new(api_key: Option<String>, oauth: bool, paste_login: bool, registry: ServerRegistry) -> Self {
+    pub fn new(
+        api_key: Option<String>,
+        oauth: bool,
+        paste_login: bool,
+        registry: ServerRegistry,
+    ) -> Self {
         Self {
             api_key,
             oauth,

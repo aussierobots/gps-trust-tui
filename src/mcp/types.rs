@@ -83,11 +83,46 @@ impl ServerId {
 /// (key, label, prefix, default_url, is_identity_provider, scope). Scopes must
 /// match the auth server's DCR_AUDIENCE_SCOPE_POLICY.
 const KNOWN_SERVERS: &[(&str, &str, &str, &str, bool, &str)] = &[
-    ("user", "User", "U", "https://gt.aussierobots.com.au/mcp", true, "mcp:read mcp:write"),
-    ("agent", "Agent", "A", "https://agent.aussierobots.com.au/mcp", false, "mcp:read mcp:write"),
-    ("pf", "Particle Filter", "P", "https://pf.aussierobots.com.au/mcp", false, "mcp:read mcp:write"),
-    ("sv-track", "SV Track", "T", "https://st.aussierobots.com.au/mcp", false, "mcp:read"),
-    ("space-data", "Space Data", "D", "https://sd.aussierobots.com.au/mcp", false, "mcp:read"),
+    (
+        "user",
+        "User",
+        "U",
+        "https://gt.aussierobots.com.au/mcp",
+        true,
+        "mcp:read mcp:write",
+    ),
+    (
+        "agent",
+        "Agent",
+        "A",
+        "https://agent.aussierobots.com.au/mcp",
+        false,
+        "mcp:read mcp:write",
+    ),
+    (
+        "pf",
+        "Particle Filter",
+        "P",
+        "https://pf.aussierobots.com.au/mcp",
+        false,
+        "mcp:read mcp:write",
+    ),
+    (
+        "sv-track",
+        "SV Track",
+        "T",
+        "https://st.aussierobots.com.au/mcp",
+        false,
+        "mcp:read",
+    ),
+    (
+        "space-data",
+        "Space Data",
+        "D",
+        "https://sd.aussierobots.com.au/mcp",
+        false,
+        "mcp:read",
+    ),
 ];
 
 /// Display metadata + identity role for known server keys; derived otherwise.
@@ -220,7 +255,12 @@ impl ToolEntry {
 
     /// Returns the task support badge for display: [T!], [T?], or empty.
     pub fn task_badge(&self) -> &'static str {
-        match self.tool.execution.as_ref().and_then(|e| e.task_support.as_ref()) {
+        match self
+            .tool
+            .execution
+            .as_ref()
+            .and_then(|e| e.task_support.as_ref())
+        {
             Some(turul_mcp_client::TaskSupport::Required) => "[T!]",
             Some(turul_mcp_client::TaskSupport::Optional) => "[T?]",
             _ => "",
@@ -332,7 +372,9 @@ mod tests {
     #[test]
     fn identity_provider_is_user() {
         let reg = ServerRegistry::from_specs("https://u/mcp", "https://a/mcp", &[]).unwrap();
-        let provider = reg.identity_provider().expect("registry has an identity provider");
+        let provider = reg
+            .identity_provider()
+            .expect("registry has an identity provider");
         assert_eq!(provider.key(), "user");
         assert!(provider.is_identity_provider());
     }

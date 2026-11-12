@@ -14,6 +14,7 @@ cargo run --bin gttui -- --api-key <key>  # API key mode
 cargo run --bin gttui -- --no-oauth --api-key <key>  # API key only
 cargo run --bin gttui -- call account_devices        # CLI tool call
 cargo test                                           # Run tests
+scripts/gate.sh                                       # Tests + fmt --check + clippy -D warnings
 ```
 
 ## Architecture

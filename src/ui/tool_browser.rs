@@ -1,8 +1,8 @@
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
-use ratatui::Frame;
 
 use crate::app::{App, InputMode, PanelFocus};
 use turul_mcp_client::JsonSchema;
@@ -53,7 +53,11 @@ pub fn render_tool_list(frame: &mut Frame, area: Rect, app: &mut App) {
         .collect();
 
     let focused = app.focus == PanelFocus::ToolList;
-    let border_color = if focused { Color::Cyan } else { Color::DarkGray };
+    let border_color = if focused {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
 
     let list = List::new(items)
         .block(
@@ -87,7 +91,11 @@ pub fn render_tool_list(frame: &mut Frame, area: Rect, app: &mut App) {
 /// Render the detail pane for the currently selected tool.
 pub fn render_tool_detail(frame: &mut Frame, area: Rect, app: &App) {
     let focused = app.focus == PanelFocus::Detail;
-    let border_color = if focused { Color::Cyan } else { Color::DarkGray };
+    let border_color = if focused {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
 
     let Some(entry) = app.selected_tool() else {
         let empty = Paragraph::new("No tool selected")
@@ -203,12 +211,10 @@ pub fn render_tool_detail(frame: &mut Frame, area: Rect, app: &App) {
 
             let is_managed = name == "account_id";
 
-            let mut spans = vec![
-                Span::styled(
-                    format!("  {name}"),
-                    Style::default().fg(Color::Green),
-                ),
-            ];
+            let mut spans = vec![Span::styled(
+                format!("  {name}"),
+                Style::default().fg(Color::Green),
+            )];
             if is_required {
                 spans.push(Span::styled("*", Style::default().fg(Color::Red)));
             }

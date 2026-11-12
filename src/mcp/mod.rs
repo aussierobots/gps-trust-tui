@@ -59,9 +59,8 @@ impl McpManager {
                 continue;
             }
             let server_headers = session.headers_for(server);
-            let client =
-                McpServerClient::new(server.clone(), server.url(), server_headers.clone())
-                    .with_context(|| format!("failed to create {server} MCP client"))?;
+            let client = McpServerClient::new(server.clone(), server.url(), server_headers.clone())
+                .with_context(|| format!("failed to create {server} MCP client"))?;
             clients.insert(server.clone(), client);
             headers.insert(server.clone(), server_headers);
         }
@@ -175,14 +174,8 @@ impl McpManager {
             .as_str()
             .context("missing accountId in entity_info response")?
             .to_string();
-        let display_name = info["entityName"]
-            .as_str()
-            .unwrap_or("Unknown")
-            .to_string();
-        let entity_type = info["entityType"]
-            .as_str()
-            .unwrap_or("unknown")
-            .to_string();
+        let display_name = info["entityName"].as_str().unwrap_or("Unknown").to_string();
+        let entity_type = info["entityType"].as_str().unwrap_or("unknown").to_string();
 
         // Update managed fields with the real account_id
         self.managed_fields = ManagedFieldsPolicy::new(&account_id);
@@ -230,10 +223,7 @@ impl McpManager {
             if !self.connected.contains(server) {
                 continue;
             }
-            let client = self
-                .clients
-                .get(server)
-                .expect("connected client exists");
+            let client = self.clients.get(server).expect("connected client exists");
             match client.list_all_tools().await {
                 Ok(tools) => {
                     for tool in tools {
@@ -241,7 +231,11 @@ impl McpManager {
                         let mut declared = self.declared_managed.lock().expect("declared lock");
                         for name in self.managed_fields.names() {
                             if props.is_some_and(|p| p.contains_key(name)) {
-                                declared.insert((server.clone(), tool.name.clone(), name.to_string()));
+                                declared.insert((
+                                    server.clone(),
+                                    tool.name.clone(),
+                                    name.to_string(),
+                                ));
                             }
                         }
                         drop(declared);
@@ -257,7 +251,10 @@ impl McpManager {
             }
         }
 
-        debug!(count = entries.len(), "Merged tool list from connected servers");
+        debug!(
+            count = entries.len(),
+            "Merged tool list from connected servers"
+        );
         Ok(entries)
     }
 

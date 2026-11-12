@@ -1,8 +1,8 @@
+use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
-use ratatui::Frame;
 use serde_json::Value;
 use turul_mcp_client::schema::JsonSchema;
 use turul_mcp_client::tools::ToolSchema;
@@ -64,7 +64,12 @@ impl FormState {
     /// than shown to the user (e.g. `["account_id"]`). `id_cache` pre-fills
     /// carry-forward fields (`device_id`, `station_id`, `robot_id`, `agent_id`)
     /// with their most-recently-used value — see [`IdCache::default_for`].
-    pub fn new(tool_name: &str, schema: &ToolSchema, managed_fields: &[String], id_cache: &IdCache) -> Self {
+    pub fn new(
+        tool_name: &str,
+        schema: &ToolSchema,
+        managed_fields: &[String],
+        id_cache: &IdCache,
+    ) -> Self {
         let fields = build_form_fields(schema, managed_fields, id_cache);
         Self {
             tool_name: tool_name.to_string(),
@@ -138,13 +143,14 @@ impl FormState {
     /// Toggle a boolean field at the current selection.
     pub fn toggle_boolean(&mut self) {
         if let Some(field) = self.selected_field_mut()
-            && matches!(field.field_type, FieldType::Boolean) {
-                field.value = if field.value == "true" {
-                    "false".to_string()
-                } else {
-                    "true".to_string()
-                };
-            }
+            && matches!(field.field_type, FieldType::Boolean)
+        {
+            field.value = if field.value == "true" {
+                "false".to_string()
+            } else {
+                "true".to_string()
+            };
+        }
     }
 
     /// Append a character to the selected field's value (while editing).
@@ -169,7 +175,11 @@ impl FormState {
 /// Build form fields from a `ToolSchema`, marking any field whose name appears
 /// in `managed_fields` as managed (hidden from the UI, injected on submit).
 /// `id_cache` supplies a pre-filled default for carry-forward id fields.
-pub fn build_form_fields(schema: &ToolSchema, managed_fields: &[String], id_cache: &IdCache) -> Vec<FormField> {
+pub fn build_form_fields(
+    schema: &ToolSchema,
+    managed_fields: &[String],
+    id_cache: &IdCache,
+) -> Vec<FormField> {
     let properties = match &schema.properties {
         Some(props) => props,
         None => return Vec::new(),
@@ -233,20 +243,14 @@ fn parse_json_schema(schema: &JsonSchema) -> (FieldType, Option<String>, Option<
                 (FieldType::Text, description.clone(), None)
             }
         }
-        JsonSchema::Integer { description, .. } => {
-            (FieldType::Integer, description.clone(), None)
-        }
-        JsonSchema::Number { description, .. } => {
-            (FieldType::Number, description.clone(), None)
-        }
+        JsonSchema::Integer { description, .. } => (FieldType::Integer, description.clone(), None),
+        JsonSchema::Number { description, .. } => (FieldType::Number, description.clone(), None),
         JsonSchema::Boolean { description } => (
             FieldType::Boolean,
             description.clone(),
             Some("false".to_string()),
         ),
-        JsonSchema::Array { description, .. } => {
-            (FieldType::Array, description.clone(), None)
-        }
+        JsonSchema::Array { description, .. } => (FieldType::Array, description.clone(), None),
         JsonSchema::Object { description, .. } => {
             // Nested objects are edited as raw JSON text.
             (FieldType::Text, description.clone(), None)
@@ -393,11 +397,7 @@ pub fn render_tool_form(frame: &mut Frame, area: Rect, form: &FormState, id_cach
                 ]));
             }
             _ => {
-                let cursor = if is_selected && form.editing {
-                    "_"
-                } else {
-                    ""
-                };
+                let cursor = if is_selected && form.editing { "_" } else { "" };
                 let display_value = if field.value.is_empty() && !form.editing {
                     "".to_string()
                 } else {
@@ -464,11 +464,7 @@ pub fn render_tool_form(frame: &mut Frame, area: Rect, form: &FormState, id_cach
     )]));
 
     let paragraph = Paragraph::new(lines)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Parameters "),
-        )
+        .block(Block::default().borders(Borders::ALL).title(" Parameters "))
         .wrap(Wrap { trim: false });
 
     frame.render_widget(paragraph, area);

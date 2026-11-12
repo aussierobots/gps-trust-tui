@@ -22,7 +22,10 @@ const DEFAULT_CARRY_FORWARD_FIELDS: &[&str] = &["station_id", "robot_id", "devic
 /// `account_devices`; a Station-scoped key only sees `station_devices`, etc.,
 /// so which candidate exists depends on the caller's entity type).
 pub const AUTO_FETCH_CANDIDATES: &[(&str, &[&str])] = &[
-    ("device_id", &["account_devices", "station_devices", "robot_devices"]),
+    (
+        "device_id",
+        &["account_devices", "station_devices", "robot_devices"],
+    ),
     ("station_id", &["account_stations"]),
     ("robot_id", &["account_robots"]),
     ("agent_id", &["list_agents"]),
@@ -93,9 +96,10 @@ impl IdCache {
                 for (key, v) in map {
                     let normalized = to_snake_case(key);
                     if normalized.ends_with("_id")
-                        && let serde_json::Value::String(s) = v {
-                            self.record(&normalized, s);
-                        }
+                        && let serde_json::Value::String(s) = v
+                    {
+                        self.record(&normalized, s);
+                    }
                     self.scan(v);
                 }
             }

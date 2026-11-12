@@ -18,9 +18,8 @@ pub fn parse_params(params: &[String]) -> Result<serde_json::Value> {
 
         // Try to parse value as JSON (number, bool, null, object, array).
         // Fall back to string if it doesn't parse.
-        let json_value = serde_json::from_str(value).unwrap_or_else(|_| {
-            serde_json::Value::String(value.to_string())
-        });
+        let json_value = serde_json::from_str(value)
+            .unwrap_or_else(|_| serde_json::Value::String(value.to_string()));
 
         map.insert(key.to_string(), json_value);
     }
@@ -60,10 +59,8 @@ pub fn format_output(value: &serde_json::Value, format: &str) -> Result<String> 
             let toml_value = json_to_toml(value);
             toml::to_string_pretty(&toml_value).context("TOML serialization failed")
         }
-        "toon" => {
-            toon_format::encode::encode_default(value)
-                .map_err(|e| anyhow::anyhow!("TOON encoding failed: {e}"))
-        }
+        "toon" => toon_format::encode::encode_default(value)
+            .map_err(|e| anyhow::anyhow!("TOON encoding failed: {e}")),
         _ => bail!("unsupported output format: {format}"),
     }
 }
@@ -84,9 +81,7 @@ fn json_to_toml(value: &serde_json::Value) -> toml::Value {
             }
         }
         serde_json::Value::String(s) => toml::Value::String(s.clone()),
-        serde_json::Value::Array(arr) => {
-            toml::Value::Array(arr.iter().map(json_to_toml).collect())
-        }
+        serde_json::Value::Array(arr) => toml::Value::Array(arr.iter().map(json_to_toml).collect()),
         serde_json::Value::Object(map) => {
             let mut table = toml::map::Map::new();
             for (k, v) in map {
@@ -115,9 +110,16 @@ pub struct Connection<'a> {
 
 /// Auth + connect + bootstrap + list tools. Used by all CLI subcommands.
 async fn connect_and_list(conn: Connection<'_>) -> Result<(McpManager, Vec<ToolEntry>)> {
-    let Connection { api_key, oauth, paste_login, user_url, agent_url, extra } = conn;
-    let registry = ServerRegistry::from_specs(user_url, agent_url, extra)
-        .map_err(|e| anyhow::anyhow!(e))?;
+    let Connection {
+        api_key,
+        oauth,
+        paste_login,
+        user_url,
+        agent_url,
+        extra,
+    } = conn;
+    let registry =
+        ServerRegistry::from_specs(user_url, agent_url, extra).map_err(|e| anyhow::anyhow!(e))?;
     let auth_manager = AuthManager::new(api_key, oauth, paste_login, registry.clone());
     let session = auth_manager
         .authenticate()
@@ -125,8 +127,8 @@ async fn connect_and_list(conn: Connection<'_>) -> Result<(McpManager, Vec<ToolE
         .context("authentication failed")?;
 
     let (action_tx, _action_rx) = mpsc::unbounded_channel::<Action>();
-    let mut mcp_manager = McpManager::new(&session, &registry)
-        .context("failed to create MCP manager")?;
+    let mut mcp_manager =
+        McpManager::new(&session, &registry).context("failed to create MCP manager")?;
     mcp_manager
         .connect_all(action_tx)
         .await
@@ -162,7 +164,8 @@ fn find_tool<'a>(
             bail!(
                 "tool '{}' not found{}. Available tools: {}",
                 tool_name,
-                from.map(|k| format!(" on server '{k}'")).unwrap_or_default(),
+                from.map(|k| format!(" on server '{k}'"))
+                    .unwrap_or_default(),
                 available.join(", ")
             )
         }
@@ -246,10 +249,7 @@ pub async fn run_describe(
 }
 
 /// List all available tools with name, server, and title.
-pub async fn run_tools(
-    output_format: &str,
-    conn: Connection<'_>,
-) -> Result<()> {
+pub async fn run_tools(output_format: &str, conn: Connection<'_>) -> Result<()> {
     let (mcp_manager, tools) = connect_and_list(conn).await?;
 
     let list: Vec<serde_json::Value> = tools
@@ -332,10 +332,7 @@ fn tool_to_description(entry: &ToolEntry) -> serde_json::Value {
             );
         }
         if let Some(open_world) = ann.open_world_hint {
-            annotations.insert(
-                "openWorld".to_string(),
-                serde_json::Value::Bool(open_world),
-            );
+            annotations.insert("openWorld".to_string(), serde_json::Value::Bool(open_world));
         }
         if !annotations.is_empty() {
             desc["annotations"] = serde_json::Value::Object(annotations);
@@ -344,9 +341,10 @@ fn tool_to_description(entry: &ToolEntry) -> serde_json::Value {
 
     // Task support
     if let Some(ref exec) = tool.execution
-        && let Some(ref ts) = exec.task_support {
-            desc["taskSupport"] = serde_json::Value::String(format!("{:?}", ts).to_lowercase());
-        }
+        && let Some(ref ts) = exec.task_support
+    {
+        desc["taskSupport"] = serde_json::Value::String(format!("{:?}", ts).to_lowercase());
+    }
 
     desc
 }
@@ -460,10 +458,12 @@ mod tests {
         let params = vec!["no_equals_here".to_string()];
         let result = parse_params(&params);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("expected key=value"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("expected key=value")
+        );
     }
 
     #[test]

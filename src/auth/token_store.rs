@@ -49,8 +49,7 @@ impl TokenStore {
             std::fs::create_dir_all(parent)
                 .context("failed to create config directory for token store")?;
         }
-        let json =
-            serde_json::to_string_pretty(self).context("failed to serialize token store")?;
+        let json = serde_json::to_string_pretty(self).context("failed to serialize token store")?;
 
         #[cfg(unix)]
         {

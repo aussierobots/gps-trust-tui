@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, info, warn};
 
 use crate::action::Action;
@@ -64,11 +64,19 @@ struct Cli {
     no_paste_login: bool,
 
     /// User MCP server URL
-    #[arg(long, default_value = "https://gt.aussierobots.com.au/mcp", hide_default_value = true)]
+    #[arg(
+        long,
+        default_value = "https://gt.aussierobots.com.au/mcp",
+        hide_default_value = true
+    )]
     user_url: String,
 
     /// Agent MCP server URL
-    #[arg(long, default_value = "https://agent.aussierobots.com.au/mcp", hide_default_value = true)]
+    #[arg(
+        long,
+        default_value = "https://agent.aussierobots.com.au/mcp",
+        hide_default_value = true
+    )]
     agent_url: String,
 
     /// Register an additional MCP server as KEY=URL (repeatable). Known keys
@@ -138,11 +146,18 @@ async fn main() -> anyhow::Result<()> {
     let paste_login = cli.paste_login
         || (!cli.no_paste_login && auth::oauth::in_ssh_session(|k| std::env::var(k).ok()));
     if paste_login && !cli.paste_login && use_oauth && cli.api_key.is_none() {
-        eprintln!("SSH session detected: pasting the login redirect (--no-paste-login to use the localhost callback).");
+        eprintln!(
+            "SSH session detected: pasting the login redirect (--no-paste-login to use the localhost callback)."
+        );
     }
 
     match cli.command {
-        Some(Command::Call { tool_name, params, output, from }) => {
+        Some(Command::Call {
+            tool_name,
+            params,
+            output,
+            from,
+        }) => {
             call::run_call(
                 &tool_name,
                 &params,
@@ -159,7 +174,11 @@ async fn main() -> anyhow::Result<()> {
             )
             .await
         }
-        Some(Command::Describe { tool_name, output, from }) => {
+        Some(Command::Describe {
+            tool_name,
+            output,
+            from,
+        }) => {
             call::run_describe(
                 &tool_name,
                 &output,
@@ -197,7 +216,17 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("Logged out. Tokens and session cleared.");
             Ok(())
         }
-        None => run_tui(cli.api_key, use_oauth, paste_login, cli.user_url, cli.agent_url, cli.servers).await,
+        None => {
+            run_tui(
+                cli.api_key,
+                use_oauth,
+                paste_login,
+                cli.user_url,
+                cli.agent_url,
+                cli.servers,
+            )
+            .await
+        }
     }
 }
 
@@ -223,8 +252,8 @@ async fn run_tui(
     // --- Phase 2: Connect MCP servers + bootstrap identity ---
     let (action_tx, mut action_rx) = mpsc::unbounded_channel::<Action>();
 
-    let mut mcp_manager = McpManager::new(&session, &registry)
-        .context("failed to create MCP manager")?;
+    let mut mcp_manager =
+        McpManager::new(&session, &registry).context("failed to create MCP manager")?;
 
     eprintln!("Connecting to MCP servers...");
     mcp_manager

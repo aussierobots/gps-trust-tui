@@ -61,7 +61,6 @@ pub struct App {
     // Result state
     pub result_state: Option<ResultState>,
 
-
     /// `*_id` values seen in tool results, offered as cycle-through
     /// suggestions on matching form fields (see `cycle_suggestion`).
     pub id_cache: IdCache,
@@ -126,7 +125,8 @@ impl App {
 
             // --- MCP lifecycle ---
             Action::McpConnecting(server) => {
-                self.server_state.insert(server, ConnectionState::Connecting);
+                self.server_state
+                    .insert(server, ConnectionState::Connecting);
             }
             Action::McpConnected(server) => {
                 self.server_state.insert(server, ConnectionState::Connected);
@@ -155,7 +155,7 @@ impl App {
                 let mut rs = ResultState::with_result(*result);
                 rs.tool_name = tool_name;
                 self.result_state = Some(rs);
-                        self.focus = PanelFocus::Result;
+                self.focus = PanelFocus::Result;
             }
             Action::IdCacheFetched(result) => {
                 self.scan_result_for_id_suggestions(&result);
@@ -185,38 +185,34 @@ impl App {
             }
 
             // --- Navigation ---
-            Action::ScrollUp => {
-                match self.focus {
-                    PanelFocus::ToolList => self.select_prev(),
-                    PanelFocus::Result => {
-                        if let Some(ref mut rs) = self.result_state {
-                            rs.scroll_up(1);
-                        }
+            Action::ScrollUp => match self.focus {
+                PanelFocus::ToolList => self.select_prev(),
+                PanelFocus::Result => {
+                    if let Some(ref mut rs) = self.result_state {
+                        rs.scroll_up(1);
                     }
-                    PanelFocus::Form => {
-                        if let Some(ref mut form) = self.form_state {
-                            form.select_prev();
-                        }
-                    }
-                    _ => {}
                 }
-            }
-            Action::ScrollDown => {
-                match self.focus {
-                    PanelFocus::ToolList => self.select_next(),
-                    PanelFocus::Result => {
-                        if let Some(ref mut rs) = self.result_state {
-                            rs.scroll_down(1);
-                        }
+                PanelFocus::Form => {
+                    if let Some(ref mut form) = self.form_state {
+                        form.select_prev();
                     }
-                    PanelFocus::Form => {
-                        if let Some(ref mut form) = self.form_state {
-                            form.select_next();
-                        }
-                    }
-                    _ => {}
                 }
-            }
+                _ => {}
+            },
+            Action::ScrollDown => match self.focus {
+                PanelFocus::ToolList => self.select_next(),
+                PanelFocus::Result => {
+                    if let Some(ref mut rs) = self.result_state {
+                        rs.scroll_down(1);
+                    }
+                }
+                PanelFocus::Form => {
+                    if let Some(ref mut form) = self.form_state {
+                        form.select_next();
+                    }
+                }
+                _ => {}
+            },
             Action::CyclePrev => self.cycle_suggestion(false),
             Action::CycleNext => self.cycle_suggestion(true),
             Action::FocusNext => {
@@ -272,20 +268,18 @@ impl App {
             Action::FilterChar(c) => {
                 self.handle_char(c);
             }
-            Action::FilterBackspace => {
-                match self.input_mode {
-                    InputMode::Filter => {
-                        self.filter_text.pop();
-                        self.apply_filter();
-                    }
-                    InputMode::FormEdit => {
-                        if let Some(ref mut form) = self.form_state {
-                            form.pop_char();
-                        }
-                    }
-                    _ => {}
+            Action::FilterBackspace => match self.input_mode {
+                InputMode::Filter => {
+                    self.filter_text.pop();
+                    self.apply_filter();
                 }
-            }
+                InputMode::FormEdit => {
+                    if let Some(ref mut form) = self.form_state {
+                        form.pop_char();
+                    }
+                }
+                _ => {}
+            },
             Action::PasteText(text) => {
                 // Paste: insert all chars into the active text input
                 for c in text.chars() {
@@ -331,10 +325,12 @@ impl App {
                             PanelFocus::Form => {
                                 // Start editing the selected field (only if there are visible fields)
                                 if let Some(ref mut form) = self.form_state
-                                    && !form.editing && form.visible_count() > 0 {
-                                        form.editing = true;
-                                        self.input_mode = InputMode::FormEdit;
-                                    }
+                                    && !form.editing
+                                    && form.visible_count() > 0
+                                {
+                                    form.editing = true;
+                                    self.input_mode = InputMode::FormEdit;
+                                }
                             }
                             PanelFocus::Result => {}
                         }
@@ -342,42 +338,38 @@ impl App {
                     InputMode::Login => {}
                 }
             }
-            Action::Escape => {
-                match self.input_mode {
-                    InputMode::Filter => {
-                        self.filter_text.clear();
-                        self.apply_filter();
-                        self.input_mode = InputMode::Normal;
-                    }
-                    InputMode::FormEdit => {
-                        if let Some(ref mut form) = self.form_state {
-                            form.editing = false;
-                        }
-                        self.input_mode = InputMode::Normal;
-                    }
-                    InputMode::Normal => {
-                        match self.focus {
-                            PanelFocus::Result => {
-                                self.result_state = None;
-                                self.focus = if self.form_state.is_some() {
-                                    PanelFocus::Form
-                                } else {
-                                    PanelFocus::Detail
-                                };
-                            }
-                            PanelFocus::Form => {
-                                self.form_state = None;
-                                self.focus = PanelFocus::Detail;
-                            }
-                            PanelFocus::Detail => {
-                                self.focus = PanelFocus::ToolList;
-                            }
-                            PanelFocus::ToolList => {}
-                        }
-                    }
-                    InputMode::Login => {}
+            Action::Escape => match self.input_mode {
+                InputMode::Filter => {
+                    self.filter_text.clear();
+                    self.apply_filter();
+                    self.input_mode = InputMode::Normal;
                 }
-            }
+                InputMode::FormEdit => {
+                    if let Some(ref mut form) = self.form_state {
+                        form.editing = false;
+                    }
+                    self.input_mode = InputMode::Normal;
+                }
+                InputMode::Normal => match self.focus {
+                    PanelFocus::Result => {
+                        self.result_state = None;
+                        self.focus = if self.form_state.is_some() {
+                            PanelFocus::Form
+                        } else {
+                            PanelFocus::Detail
+                        };
+                    }
+                    PanelFocus::Form => {
+                        self.form_state = None;
+                        self.focus = PanelFocus::Detail;
+                    }
+                    PanelFocus::Detail => {
+                        self.focus = PanelFocus::ToolList;
+                    }
+                    PanelFocus::ToolList => {}
+                },
+                InputMode::Login => {}
+            },
 
             Action::ResultNextTab => {
                 if let Some(ref mut rs) = self.result_state {
@@ -420,9 +412,10 @@ impl App {
                 }
                 ' ' => {
                     if self.focus == PanelFocus::Form
-                        && let Some(ref mut form) = self.form_state {
-                            form.toggle_boolean();
-                        }
+                        && let Some(ref mut form) = self.form_state
+                    {
+                        form.toggle_boolean();
+                    }
                 }
                 '1' | '2' => {
                     if let Some(ref mut rs) = self.result_state {
@@ -552,7 +545,12 @@ impl App {
     pub fn selected_tool_needs_input(&self) -> bool {
         if let Some(entry) = self.selected_tool() {
             let managed = self.managed_fields();
-            let form = FormState::new(&entry.tool.name, &entry.tool.input_schema, &managed, &self.id_cache);
+            let form = FormState::new(
+                &entry.tool.name,
+                &entry.tool.input_schema,
+                &managed,
+                &self.id_cache,
+            );
             form.has_required_input()
         } else {
             false
@@ -563,7 +561,12 @@ impl App {
     pub fn open_form_for_selected(&mut self) -> bool {
         if let Some(entry) = self.selected_tool().cloned() {
             let managed = self.managed_fields();
-            let form = FormState::new(&entry.tool.name, &entry.tool.input_schema, &managed, &self.id_cache);
+            let form = FormState::new(
+                &entry.tool.name,
+                &entry.tool.input_schema,
+                &managed,
+                &self.id_cache,
+            );
             self.form_state = Some(form);
             self.focus = PanelFocus::Form;
             self.queue_id_fetches_for_open_form();
@@ -607,7 +610,9 @@ impl App {
                 return;
             }
         }
-        let Some((_, candidates)) = AUTO_FETCH_CANDIDATES.iter().find(|(name, _)| *name == field_name)
+        let Some((_, candidates)) = AUTO_FETCH_CANDIDATES
+            .iter()
+            .find(|(name, _)| *name == field_name)
         else {
             return;
         };
@@ -633,11 +638,11 @@ impl App {
         if self.focus != PanelFocus::Form {
             return;
         }
-        let Some(name) = self
-            .form_state
-            .as_ref()
-            .and_then(|form| form.visible_fields().get(form.selected_field).map(|(_, f)| f.name.clone()))
-        else {
+        let Some(name) = self.form_state.as_ref().and_then(|form| {
+            form.visible_fields()
+                .get(form.selected_field)
+                .map(|(_, f)| f.name.clone())
+        }) else {
             return;
         };
         self.queue_id_fetch(&name, true);
@@ -731,7 +736,6 @@ impl App {
             .map(|s| s.display_name.clone())
             .unwrap_or_else(|| "(not authenticated)".to_string())
     }
-
 }
 
 #[cfg(test)]
@@ -847,9 +851,8 @@ mod tests {
 
     #[test]
     fn scan_result_for_id_suggestions_reads_structured_content() {
-        let mut app = App::new(
-            &ServerRegistry::from_specs("https://u/mcp", "https://a/mcp", &[]).unwrap(),
-        );
+        let mut app =
+            App::new(&ServerRegistry::from_specs("https://u/mcp", "https://a/mcp", &[]).unwrap());
         let result = turul_mcp_client::CallToolResult {
             content: vec![],
             is_error: None,
@@ -902,7 +905,8 @@ mod tests {
     fn auto_fetch_skipped_when_already_cached() {
         let mut app = app_with_form(vec![field("device_id", FieldType::Text, "")]);
         app.tools = vec![tool_entry("user", "station_devices")];
-        app.id_cache.scan(&serde_json::json!({ "device_id": "D#1" }));
+        app.id_cache
+            .scan(&serde_json::json!({ "device_id": "D#1" }));
 
         app.queue_id_fetches_for_open_form();
         assert!(app.id_fetch_requests.is_empty());
